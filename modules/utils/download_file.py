@@ -17,6 +17,7 @@ import hashlib
 import http.client
 import os
 import random
+import ssl
 import sys
 import time
 import urllib.error
@@ -27,10 +28,22 @@ from typing import Optional
 CHUNK_SIZE = 64 * 1024  # 64KB per read
 
 
+def _certifi_ssl_context():
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 @contextmanager
 def _open_url(url: str, *, headers: Optional[dict] = None, timeout: Optional[float] = None):
     req = urllib.request.Request(url, headers=headers or {})
-    response = urllib.request.urlopen(req, timeout=timeout)  # nosec - controlled sources
+    context = _certifi_ssl_context() if url.lower().startswith("https://") else None
+    kwargs = {"timeout": timeout}
+    if context is not None:
+        kwargs["context"] = context
+    response = urllib.request.urlopen(req, **kwargs)  # nosec - controlled sources
     try:
         yield response
     finally:
