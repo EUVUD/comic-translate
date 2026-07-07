@@ -171,6 +171,12 @@ Gemini-2.5.
 All LLMs are fed the entire page text to aid translations. 
 There is also the Option to provide the Image itself for further context. 
 
+Experimental context-aware translation work is tracked in OpenSpec under
+`openspec/changes/langgraph-translation-workflow`. The first implementation
+adds an opt-in page-level LangGraph workflow that keeps the existing translation
+pipeline intact and stores inspectable workflow records in a sidecar
+`.ctmem.sqlite` database.
+
 ### Text Rendering
 Wrapped text in bounding boxes obtained from bubbles and text.
 

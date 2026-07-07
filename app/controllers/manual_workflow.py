@@ -12,7 +12,7 @@ from modules.utils.common_utils import is_close
 from modules.utils.device import resolve_device
 from modules.utils.language_utils import get_language_code, is_no_space_lang
 from modules.utils.language_utils import to_canonical_language_name
-from modules.utils.pipeline_config import validate_ocr, validate_translator
+from modules.utils.pipeline_config import validate_ocr, validate_translator, validate_custom_translator
 from modules.utils.textblock import sort_blk_list
 from modules.utils.translator_utils import is_there_text, format_translations, set_upper_case
 from pipeline.webtoon_utils import get_visible_text_items, get_first_visible_block
@@ -428,6 +428,19 @@ class ManualWorkflowController:
                 self.main.default_error_handler,
                 lambda: self.update_translated_text_items(single_block),
             )
+
+    def translate_image_with_context_workflow(self) -> None:
+        if not is_there_text(self.main.blk_list) or not validate_custom_translator(self.main):
+            return
+
+        self.main.loading.setVisible(True)
+        self.main.disable_hbutton_group()
+        self.main.run_threaded(
+            self.main.pipeline.translate_image_with_context_workflow,
+            None,
+            self.main.default_error_handler,
+            lambda: self.update_translated_text_items(False),
+        )
 
     def _get_visible_text_items(self) -> list[TextBlockItem]:
         if not self.main.webtoon_mode:

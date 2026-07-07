@@ -138,6 +138,10 @@ class ComicTranslatePipeline:
         """Translate image or single block."""
         self.translation_handler.translate_image(single_block)
 
+    def translate_image_with_context_workflow(self):
+        """Translate current image using the opt-in context-aware workflow."""
+        self.translation_handler.translate_image_with_context_workflow()
+
     def translate_webtoon_visible_area(self, single_block=False):
         """Translate visible area in webtoon mode."""
         self.translation_handler.translate_webtoon_visible_area(single_block)

@@ -1,3 +1,2 @@
-from .textblock import *
-
+"""Shared utility package."""
 
