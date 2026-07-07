@@ -49,6 +49,14 @@ class WorkspaceMixin:
         for button in self.hbutton_group.get_button_group().buttons():
             button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
+        self.context_translate_button = MPushButton(self.tr("Context Translate"))
+        self.context_translate_button.set_dayu_size(dayu_theme.small)
+        self.context_translate_button.setEnabled(True)
+        self.context_translate_button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.context_translate_button.setToolTip(
+            self.tr("Translate the current page with the experimental context workflow")
+        )
+
         self.progress_bar = MProgressBar().auto_color()
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
@@ -83,6 +91,7 @@ class WorkspaceMixin:
         self.batch_report_button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
         header_layout.addWidget(self.hbutton_group)
+        header_layout.addWidget(self.context_translate_button)
         header_layout.addWidget(self.loading)
         header_layout.addStretch()
         header_layout.addWidget(self.webtoon_toggle)

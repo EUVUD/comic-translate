@@ -83,6 +83,19 @@ def validate_translator(main: ComicTranslate, target_lang: str):
         
     return True
 
+def validate_custom_translator(main: ComicTranslate):
+    settings_page = main.settings_page
+    tr = settings_page.ui.tr
+    credentials = settings_page.get_credentials(tr("Custom"))
+    if not all([
+        credentials.get("api_key"),
+        credentials.get("api_url"),
+        credentials.get("model"),
+    ]):
+        Messages.show_custom_not_configured_error(main)
+        return False
+    return True
+
 def font_selected(main: ComicTranslate):
     if not main.render_settings().font_family:
         Messages.select_font_error(main)

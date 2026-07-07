@@ -189,6 +189,7 @@ class ComicTranslate(ComicTranslateUI):
         self.hbutton_group.get_button_group().buttons()[3].clicked.connect(self.load_segmentation_points)
         self.hbutton_group.get_button_group().buttons()[4].clicked.connect(self.inpaint_and_set)
         self.hbutton_group.get_button_group().buttons()[5].clicked.connect(self.text_ctrl.render_text)
+        self.context_translate_button.clicked.connect(self.translate_image_with_context_workflow)
 
         self.undo_tool_group.get_button_group().buttons()[0].clicked.connect(self.undo_group.undo)
         self.undo_tool_group.get_button_group().buttons()[1].clicked.connect(self.undo_group.redo)
@@ -472,6 +473,7 @@ class ComicTranslate(ComicTranslateUI):
 
     def batch_mode_selected(self):
         self.disable_hbutton_group()
+        self.context_translate_button.setEnabled(True)
         self.translate_button.setEnabled(True)
         self.cancel_button.setEnabled(True)
 
@@ -726,10 +728,12 @@ class ComicTranslate(ComicTranslateUI):
     def disable_hbutton_group(self):
         for button in self.hbutton_group.get_button_group().buttons():
             button.setEnabled(False)
+        self.context_translate_button.setEnabled(False)
 
     def enable_hbutton_group(self):
         for button in self.hbutton_group.get_button_group().buttons():
             button.setEnabled(True)
+        self.context_translate_button.setEnabled(True)
 
     def block_detect(self, load_rects: bool = True):
         self.manual_workflow_ctrl.block_detect(load_rects)
@@ -742,6 +746,9 @@ class ComicTranslate(ComicTranslateUI):
 
     def translate_image(self, single_block=False):
         self.manual_workflow_ctrl.translate_image(single_block)
+
+    def translate_image_with_context_workflow(self):
+        self.manual_workflow_ctrl.translate_image_with_context_workflow()
 
     def _get_visible_text_items(self):
         return self.manual_workflow_ctrl._get_visible_text_items()

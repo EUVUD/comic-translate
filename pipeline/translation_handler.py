@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
-from modules.translation.processor import Translator
-from modules.utils.translator_utils import set_upper_case
 from modules.utils.language_utils import to_canonical_language_name
-from pipeline.webtoon_utils import filter_and_convert_visible_blocks, restore_original_block_coordinates
 from .cache_manager import CacheManager
 
 if TYPE_CHECKING:
@@ -13,6 +10,18 @@ if TYPE_CHECKING:
     from .main_pipeline import ComicTranslatePipeline
 
 logger = logging.getLogger(__name__)
+
+
+def _make_translator(main_page, source_lang, target_lang):
+    from modules.translation.processor import Translator
+
+    return Translator(main_page, source_lang, target_lang)
+
+
+def _set_upper_case(blk_list, upper_case):
+    from modules.utils.translator_utils import set_upper_case
+
+    set_upper_case(blk_list, upper_case)
 
 
 class TranslationHandler:
@@ -46,7 +55,7 @@ class TranslationHandler:
 
             upper_case = settings_page.ui.uppercase_checkbox.isChecked()
 
-            translator = Translator(self.main_page, source_lang, target_lang)
+            translator = _make_translator(self.main_page, source_lang, target_lang)
             
             # Get translation cache key
             translation_cache_key = self.cache_manager._get_translation_cache_key(
@@ -69,7 +78,7 @@ class TranslationHandler:
                     if cached_translation is not None:  # Block was processed and source text matches
                         blk.translation = cached_translation
                         logger.info(f"Using cached translation result for block: '{cached_translation}'")
-                        set_upper_case([blk], upper_case)
+                        _set_upper_case([blk], upper_case)
                         return
                     else:
                         logger.info("Block not found in cache or source text changed, processing single block...")
@@ -82,7 +91,7 @@ class TranslationHandler:
                     self.cache_manager.update_translation_cache_for_block(translation_cache_key, blk)
                     
                     logger.info(f"Processed single block and updated cache: '{blk.translation}'")
-                    set_upper_case([blk], upper_case)
+                    _set_upper_case([blk], upper_case)
                 else:
                     # Run translation on all blocks and cache the results
                     logger.info("No cached translation results found, running translation on entire page...")
@@ -101,7 +110,7 @@ class TranslationHandler:
                         blk.translation = cached_translation
                         logger.info(f"Cached translation results and extracted translation for block: {cached_translation}")
                     
-                    set_upper_case([blk], upper_case)
+                    _set_upper_case([blk], upper_case)
             else:
                 # For full page translation, check if we can use cached results
                 if self.cache_manager._can_serve_all_blocks_from_translation_cache(translation_cache_key, self.main_page.blk_list):
@@ -114,7 +123,36 @@ class TranslationHandler:
                     self.cache_manager._cache_translation_results(translation_cache_key, self.main_page.blk_list)
                     logger.info("Translation completed and cached for %d blocks", len(self.main_page.blk_list))
                 
-                set_upper_case(self.main_page.blk_list, upper_case)
+                _set_upper_case(self.main_page.blk_list, upper_case)
+
+    def translate_image_with_context_workflow(self):
+        source_lang = to_canonical_language_name(
+            self.main_page.s_combo.currentText(),
+            self.main_page.lang_mapping,
+        )
+        target_lang = to_canonical_language_name(
+            self.main_page.t_combo.currentText(),
+            self.main_page.lang_mapping,
+        )
+        if not (self.main_page.image_viewer.hasPhoto() and self.main_page.blk_list):
+            return
+
+        from modules.translation.context.store import resolve_sidecar_db_path
+        from modules.translation.context.workflow import translate_blocks_with_context
+
+        image = self.main_page.image_viewer.get_image_array()
+        page_path = self.main_page.image_files[self.main_page.curr_img_idx]
+        db_path = resolve_sidecar_db_path(self.main_page.project_file, page_path)
+        extra_context = self.main_page.settings_page.get_llm_settings()["extra_context"]
+        project_key = self.main_page.project_file or "unsaved-project"
+        translate_blocks_with_context(
+            db_path, project_key, page_path, self.main_page,
+            source_lang, target_lang, self.main_page.blk_list, image, extra_context,
+        )
+        _set_upper_case(
+            self.main_page.blk_list,
+            self.main_page.settings_page.ui.uppercase_checkbox.isChecked(),
+        )
 
     def translate_webtoon_visible_area(self, single_block=False):
         """Perform translation on the visible area in webtoon mode."""
@@ -139,6 +177,11 @@ class TranslationHandler:
             return
         
         # Filter blocks to only those in the visible area and convert coordinates
+        from pipeline.webtoon_utils import (
+            filter_and_convert_visible_blocks,
+            restore_original_block_coordinates,
+        )
+
         visible_blocks = filter_and_convert_visible_blocks(
             self.main_page, self.pipeline, mappings, single_block
         )
@@ -151,13 +194,13 @@ class TranslationHandler:
         extra_context = settings_page.get_llm_settings()['extra_context']
         upper_case = settings_page.ui.uppercase_checkbox.isChecked()
         
-        translator = Translator(self.main_page, source_lang, target_lang)
+        translator = _make_translator(self.main_page, source_lang, target_lang)
         translator.translate(visible_blocks, visible_image, extra_context)
         
         # Translation is set, now restore original coordinates
         restore_original_block_coordinates(visible_blocks)
         
         # Apply upper case if needed
-        set_upper_case(visible_blocks, upper_case)
+        _set_upper_case(visible_blocks, upper_case)
         
         logger.info(f"Translation completed for {len(visible_blocks)} blocks in visible area")
