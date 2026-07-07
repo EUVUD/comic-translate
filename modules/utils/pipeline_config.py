@@ -18,6 +18,8 @@ inpaint_map = {
     "AOT": AOT,
 }
 
+ACCOUNT_BACKED_OCR_TOOLS = {"Microsoft OCR", "Gemini-2.5-Flash-Lite"}
+
 
 def get_inpainter_backend(inpainter_key: str) -> str:
     inpainter_cls = inpaint_map[inpainter_key]
@@ -36,18 +38,16 @@ def get_config(settings_page: SettingsPage):
     return config
 
 def validate_ocr(main: ComicTranslate):
-    """Ensure either API credentials are set or the user is authenticated."""
+    """Ensure selected OCR can run with the current account state."""
     settings_page = main.settings_page
-    tr = settings_page.ui.tr
     settings = settings_page.get_all_settings()
-    credentials = settings.get('credentials', {})
     ocr_tool = settings['tools']['ocr']
 
     if not ocr_tool:
         Messages.show_missing_tool_error(main, QCoreApplication.translate("Messages", "Text Recognition model"))
         return False
     
-    if not settings_page.is_logged_in():
+    if ocr_tool in ACCOUNT_BACKED_OCR_TOOLS and not settings_page.is_logged_in():
         Messages.show_not_logged_in_error(main)
         return False
         
