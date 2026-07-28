@@ -428,7 +428,14 @@ class ProjectController:
                 self._autosave_retrigger_requested = False
                 self._realtime_autosave_timer.start()
 
-        self.main.run_threaded(self.save_project, None, on_error, on_finished, target_file)
+        self.main.run_threaded(
+            self.save_project,
+            None,
+            on_error,
+            on_finished,
+            target_file,
+            self.main.project_file,
+        )
 
     def prompt_restore_recovery_if_available(self) -> bool:
         if self.main.image_files:
@@ -1096,9 +1103,10 @@ class ProjectController:
         def on_finished():
             self.main.on_manual_finished()
             if not save_failed['value']:
-                # Close the old project's DB connection only after the save
-                # has completed, so that lazy blobs can be read from it.
+                # The target now owns a complete project snapshot. Rebind
+                # lazily materialized pages before the old source is closed.
                 if prev_project_file and prev_project_file != file_name:
+                    remap_project_file_path(prev_project_file, file_name)
                     close_state_store(prev_project_file)
                 if self.main._dirty_revision == save_start_revision:
                     self.main.set_project_clean()
@@ -1108,7 +1116,14 @@ class ProjectController:
                 if post_save_callback:
                     post_save_callback()
 
-        self.main.run_threaded(self.save_project, None, on_error, on_finished, file_name)
+        self.main.run_threaded(
+            self.save_project,
+            None,
+            on_error,
+            on_finished,
+            file_name,
+            prev_project_file,
+        )
 
     def thread_change_project_file(self, target_path: str) -> bool:
         target_path = os.path.normpath(os.path.abspath(os.path.expanduser(target_path or "")))
@@ -1271,8 +1286,8 @@ class ProjectController:
             return True
         return False
 
-    def save_project(self, file_name):
-        save_state_to_proj_file(self.main, file_name)
+    def save_project(self, file_name, source_project_file=None):
+        save_state_to_proj_file(self.main, file_name, source_project_file)
 
     def update_ui_from_project(self):
         for state in self.main.image_states.values():
@@ -1504,4 +1519,3 @@ class ProjectController:
             # Convert value to English using mappings if available
             mapped_value = self.main.settings_page.ui.value_mappings.get(group_value, group_value)
             settings_obj.setValue(group_key, mapped_value)
-

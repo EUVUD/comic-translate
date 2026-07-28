@@ -5,11 +5,13 @@ import os
 import sqlite3
 import tempfile
 import threading
+import uuid
 from typing import TYPE_CHECKING
 
 import msgpack
 
 from .parsers import ProjectDecoder, ProjectEncoder, ensure_string_keys
+from .story_memory_schema import initialize_story_memory_schema
 from modules.utils.file_handler import ensure_prepared_path_materialized
 
 if TYPE_CHECKING:
@@ -21,6 +23,7 @@ _CONN_CACHE_LOCK = threading.RLock()
 _CONN_CACHE: dict[str, tuple[sqlite3.Connection, threading.RLock]] = {}
 _LAZY_BLOB_LOCK = threading.RLock()
 _LAZY_BLOBS_BY_PATH: dict[str, tuple[str, str]] = {}
+STORY_MEMORY_PROJECT_UUID_KEY = "story_memory_project_uuid"
 
 
 def is_sqlite_project_file(file_name: str) -> bool:
@@ -40,6 +43,37 @@ def _sha256_bytes(payload: bytes) -> str:
 def _read_file_bytes(path: str) -> bytes:
     with open(path, "rb") as fh:
         return fh.read()
+
+
+def ensure_project_uuid(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = ?",
+        (STORY_MEMORY_PROJECT_UUID_KEY,),
+    ).fetchone()
+    if row is not None and row[0]:
+        return str(row[0])
+
+    project_uuid = str(uuid.uuid4())
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)",
+        (STORY_MEMORY_PROJECT_UUID_KEY, project_uuid),
+    )
+    return project_uuid
+
+
+def ensure_page_and_block_uuids(image_state: dict | None) -> None:
+    if not isinstance(image_state, dict):
+        return
+
+    if not image_state.get("page_uuid"):
+        image_state["page_uuid"] = str(uuid.uuid4())
+
+    for block in image_state.get("blk_list", []) or []:
+        if isinstance(block, dict):
+            if not block.get("block_uuid"):
+                block["block_uuid"] = str(uuid.uuid4())
+        elif not getattr(block, "block_uuid", None):
+            block.block_uuid = str(uuid.uuid4())
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
@@ -105,9 +139,13 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    initialize_story_memory_schema(conn)
 
 
 def _configure_connection(conn: sqlite3.Connection) -> None:
+    # SQLite foreign-key enforcement is disabled by default and scoped to an
+    # individual connection. This has to happen before any transaction.
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=DELETE")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA temp_store=MEMORY")
@@ -122,10 +160,49 @@ def _get_cached_connection(file_name: str) -> tuple[sqlite3.Connection, threadin
 
         conn = sqlite3.connect(db_key, check_same_thread=False, timeout=30.0)
         _configure_connection(conn)
-        _init_schema(conn)
+        with conn:
+            _init_schema(conn)
+            ensure_project_uuid(conn)
         lock = threading.RLock()
         _CONN_CACHE[db_key] = (conn, lock)
         return conn, lock
+
+
+def get_project_connection(file_name: str) -> tuple[sqlite3.Connection, threading.RLock]:
+    """Return the initialized cached connection used by project-scoped services."""
+    return _get_cached_connection(file_name)
+
+
+def _copy_project_snapshot_to_connection(
+    source_project_file: str | None,
+    target_project_file: str,
+    target_conn: sqlite3.Connection,
+    target_lock: threading.RLock,
+) -> bool:
+    """Copy a consistent source-project snapshot into an idle target connection."""
+    if not source_project_file:
+        return False
+
+    source_path = os.path.abspath(source_project_file)
+    target_path = os.path.abspath(target_project_file)
+    if source_path == target_path or not is_sqlite_project_file(source_path):
+        return False
+
+    source_conn, source_lock = _get_cached_connection(source_path)
+    if source_conn is target_conn:
+        return False
+
+    locks = sorted(
+        ((source_path, source_lock), (target_path, target_lock)),
+        key=lambda item: item[0],
+    )
+    with locks[0][1]:
+        with locks[1][1]:
+            # `backup()` provides a consistent snapshot while both application
+            # connections are unavailable to other project operations.
+            source_conn.backup(target_conn)
+            target_conn.execute("PRAGMA foreign_keys=ON")
+    return True
 
 
 def close_cached_connection(file_name: str | None = None) -> None:
@@ -162,6 +239,9 @@ def remap_project_file_path(old_file_name: str, new_file_name: str) -> None:
             if mapped_db == old_key
         ]
 
+    # A Save As or move may replace an existing destination file. Drop its
+    # cached connection and lazy paths before rebinding the active project.
+    close_cached_connection(new_key)
     close_cached_connection(old_key)
 
     with _LAZY_BLOB_LOCK:
@@ -223,7 +303,11 @@ def ensure_lazy_blob_materialized(path: str) -> bool:
     return True
 
 
-def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str) -> None:
+def save_state_to_proj_file_v2(
+    comic_translate: "ComicTranslate",
+    file_name: str,
+    source_project_file: str | None = None,
+) -> None:
     encoder = ProjectEncoder()
 
     target_dir = os.path.dirname(os.path.abspath(file_name))
@@ -243,10 +327,24 @@ def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str
     if use_temp_and_replace:
         conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
         _configure_connection(conn)
-        _init_schema(conn)
+        with conn:
+            _init_schema(conn)
+            ensure_project_uuid(conn)
         conn_lock = threading.RLock()
     else:
         conn, conn_lock = _get_cached_connection(db_path)
+
+    try:
+        _copy_project_snapshot_to_connection(
+            source_project_file,
+            file_name,
+            conn,
+            conn_lock,
+        )
+    except Exception:
+        if use_temp_and_replace:
+            conn.close()
+        raise
 
     # Track which hashes have been written in this save so we don't re-read
     # the same file twice, but do NOT hold the payload bytes in memory.
@@ -375,8 +473,10 @@ def save_state_to_proj_file_v2(comic_translate: "ComicTranslate", file_name: str
 
     page_rows: dict[str, bytes] = {}
     for page_path in page_paths:
+        image_state = comic_translate.image_states.get(page_path, {})
+        ensure_page_and_block_uuids(image_state)
         row_payload = {
-            "image_state": comic_translate.image_states.get(page_path, {}),
+            "image_state": image_state,
             "image_file_ref": image_files_references.get(page_path),
             "image_data_ref": image_data_references.get(page_path),
             "image_history_refs": image_history_references.get(page_path, []),
@@ -562,10 +662,12 @@ def _materialize_from_manifest_and_pages(
     original_image_files = manifest.get("original_image_files", [])
     comic_translate.image_files = [original_to_temp.get(file, file) for file in original_image_files]
 
-    comic_translate.image_states = {
-        original_to_temp.get(page, page): (row.get("image_state", {}) or {})
-        for page, row in page_rows.items()
-    }
+    image_states = {}
+    for page, row in page_rows.items():
+        image_state = row.get("image_state", {}) or {}
+        ensure_page_and_block_uuids(image_state)
+        image_states[original_to_temp.get(page, page)] = image_state
+    comic_translate.image_states = image_states
 
     current_history_index = manifest.get("current_history_index", {})
     comic_translate.current_history_index = {
