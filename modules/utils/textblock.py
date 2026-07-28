@@ -1,6 +1,7 @@
 from typing import List, Tuple
 import numpy as np
 import copy
+import uuid
 from PIL import Image, ImageDraw
 from collections import defaultdict, deque
 from ..detection.utils.text_lines import group_items_into_lines
@@ -31,6 +32,7 @@ class TextBlock(object):
                  max_font_size: int = 0,
                  font_color: str|tuple = (),
                  direction: str = "",
+                 block_uuid: str = "",
                  **kwargs) -> None:
         
         self.xyxy = text_bbox
@@ -57,6 +59,7 @@ class TextBlock(object):
         self.max_font_size = max_font_size
         self.font_color = font_color
         self.direction = direction
+        self.block_uuid = block_uuid or str(uuid.uuid4())
 
     @property
     def xywh(self):
@@ -108,6 +111,7 @@ class TextBlock(object):
         new_block.max_font_size = self.max_font_size
         new_block.font_color = self.font_color
         new_block.direction = self.direction
+        new_block.block_uuid = getattr(self, "block_uuid", str(uuid.uuid4()))
         
         return new_block
 
@@ -304,4 +308,3 @@ def lists_to_blk_list(blk_list: list[TextBlock], texts_bboxes: list, texts_strin
             blk.text = ' '.join(text for bbox, text in sorted_entries)
 
     return blk_list
-

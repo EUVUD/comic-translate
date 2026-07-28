@@ -40,9 +40,17 @@ def _join_from_archive_relpath(base_dir: str, rel_path: str) -> str:
     parts = [p for p in posix.split("/") if p]
     return os.path.join(base_dir, *parts)
 
-def save_state_to_proj_file(comic_translate: ComicTranslate, file_name: str):
+def save_state_to_proj_file(
+    comic_translate: ComicTranslate,
+    file_name: str,
+    source_project_file: str | None = None,
+):
     # Default writer: v2 SQLite container (incremental-friendly, portable).
-    return save_state_to_proj_file_v2(comic_translate, file_name)
+    return save_state_to_proj_file_v2(
+        comic_translate,
+        file_name,
+        source_project_file,
+    )
 
 
 def close_state_store(file_name: str | None = None) -> None:
@@ -245,4 +253,3 @@ def load_state_from_proj_file(comic_translate: ComicTranslate, file_name: str):
     # restore LLM extra context
     saved_ctx = state.get('llm_extra_context', '')
     return saved_ctx
-
