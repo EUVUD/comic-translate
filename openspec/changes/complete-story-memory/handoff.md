@@ -2,13 +2,25 @@
 
 ## Status
 
-Planning is complete. Tasks 1.1 through 2.1 are implemented (8/44); the
+Planning is complete. Tasks 1.1 through 2.2 are implemented (9/44); the
 remaining work is still apply-ready. Current branch: `feature/story-memory`.
 The user-owned `AGENTS.md` guidance update is committed separately; do not
 change it while continuing Story Memory work unless asked.
 
 ## Completed Work
 
+- Added a pure `ContextAssembler` in
+  `modules/translation/context/assembler.py`. It performs local NFKC and
+  casefold normalization, removes whitespace only for Chinese, Japanese, and
+  Thai aliases, then matches active Canon entries for the exact language pair.
+  It retains raw display text, aggregates each matched entry's current-page
+  block UUIDs in request order, and orders results by longer normalized term
+  followed by stable entry ID without importing Qt, LangGraph, NumPy, or the
+  repository implementation.
+- Added `tests/story_memory_context_assembler_test.py` for Unicode and
+  language-aware whitespace behavior, exact language-pair and active filtering,
+  per-block provenance, longer-term and stable-ID ordering, word-boundary
+  preservation for spaced languages, and prevention of cross-block matches.
 - Added framework-independent Story Memory context contracts in
   `modules/translation/context/models.py`. Immutable request, current-page
   source-block, match-reason, entry-provenance, Story Brief, prompt-section,
@@ -121,6 +133,9 @@ change it while continuing Story Memory work unless asked.
   `git diff --check` passed. The new model test also passes when discovery has
   installed the existing partial PySide stub, proving it does not depend on the
   project parser or Qt modules.
+- After task 2.2: `tests.story_memory_context_assembler_test` passed 6 tests;
+  focused `*test.py` discovery passed 37 tests; changed modules compiled; and
+  `git diff --check` passed.
 - `uv run python -m unittest tests.story_memory_project_state_test`: passed (2 tests).
 - `uv run python -m unittest discover -s tests -p '*test.py'`: passed (6 tests).
 - `openspec status --change complete-story-memory --json`: all required planning artifacts report `done`.
@@ -136,7 +151,9 @@ change it while continuing Story Memory work unless asked.
   deterministic matching and explicit conflict resolution remain tasks 2.3 and
   4.5 rather than being silently selected here.
 - Context contracts deliberately do not normalize, match, retrieve, truncate,
-  or render prompts yet. Those behaviors remain in tasks 2.2 through 2.4.
+  or render prompts yet. Active Canon matching is now implemented; approved
+  translation-memory retrieval, budgeted assembly, and prompt rendering remain
+  in tasks 2.3 and 2.4.
 - Legacy sidecars have no persisted language pair and their path fallback for
   unsaved pages is ambiguous. The importer therefore exposes an explicit,
   saved-project-only service; controller/UI detection and any user confirmation
@@ -152,8 +169,8 @@ change it while continuing Story Memory work unless asked.
 
 ## Concrete Next Steps
 
-1. Implement task 2.2: add language-aware normalization and deterministic
-   active-canon matching with longer-term priority and stable tie ordering.
+1. Implement task 2.3: retrieve approved translation-memory rows by normalized
+   exact source and language pair, exposing conflicts as suggestions.
 2. Keep tasks 1.1 through 1.7 as the compatibility and persistence baseline.
 3. Implement one coherent task at a time and verify it before moving to the next task.
 4. Update this handoff with test evidence, migration observations, known issues, and the next safe task after each completed implementation increment.

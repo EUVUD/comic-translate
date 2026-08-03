@@ -11,7 +11,7 @@
 ## 2. Deterministic Context Assembly
 
 - [x] 2.1 Define framework-independent Story Memory request, match, provenance, and assembled-context models.
-- [ ] 2.2 Implement language-aware normalization and deterministic active-canon matching with longer-term priority and stable tie ordering.
+- [x] 2.2 Implement language-aware normalization and deterministic active-canon matching with longer-term priority and stable tie ordering.
 - [ ] 2.3 Implement approved translation-memory retrieval by normalized exact source and language pair, returning conflicting candidates as suggestions.
 - [ ] 2.4 Implement Story Brief inclusion, deduplication, item/size budgets, deterministic truncation, and distinct prompt sections that preserve user extra context.
 - [ ] 2.5 Add assembler tests for language isolation, inactive entries, forbidden/untranslatable behavior, conflicts, ordering, budgets, and exclusion of raw prior-page history.
