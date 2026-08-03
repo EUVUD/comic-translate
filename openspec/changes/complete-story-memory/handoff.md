@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning is complete. Tasks 1.1 through 2.4 are implemented (11/44); the
+Planning is complete. Tasks 1.1 through 2.5 are implemented (12/44); the
 remaining work is still apply-ready. Current branch: `feature/story-memory`.
 The user-owned `AGENTS.md` guidance update is committed separately; do not
 change it while continuing Story Memory work unless asked.
@@ -49,6 +49,11 @@ change it while continuing Story Memory work unless asked.
   rendered sections, Brief language isolation and deterministic truncation,
   semantic deduplication, item limits, preserved user instructions, exclusion
   of unmatched page text, and all-or-nothing conflict-group budgets.
+- Added assembly-level boundary tests for complete language-pair isolation,
+  active `forbidden` and `untranslatable` Canon behavior, inactive Canon
+  exclusion, deterministic Canon and conflicting translation-memory ordering,
+  zero and finite memory budgets, preservation of long user instructions, and
+  exclusion of raw prior-page history from the rendered context.
 - Added framework-independent Story Memory context contracts in
   `modules/translation/context/models.py`. Immutable request, current-page
   source-block, match-reason, entry-provenance, Story Brief, prompt-section,
@@ -172,6 +177,9 @@ change it while continuing Story Memory work unless asked.
   focused `*test.py` discovery passed 50 tests; changed modules compiled;
   `git diff --check` and `openspec validate complete-story-memory --strict`
   passed.
+- After task 2.5: the assembler test module passed 22 tests; focused
+  `*test.py` discovery passed 55 tests; the changed test compiled; `git diff
+  --check` and `openspec validate complete-story-memory --strict` passed.
 - `uv run python -m unittest tests.story_memory_project_state_test`: passed (2 tests).
 - `uv run python -m unittest discover -s tests -p '*test.py'`: passed (6 tests).
 - `openspec status --change complete-story-memory --json`: all required planning artifacts report `done`.
@@ -208,9 +216,9 @@ change it while continuing Story Memory work unless asked.
 
 ## Concrete Next Steps
 
-1. Implement task 2.5: expand assembler coverage for language isolation,
-   inactive and forbidden/untranslatable Canon behavior, conflicts, ordering,
-   budgets, and exclusion of raw prior-page history.
+1. Implement task 2.6: add privacy tests proving only matched entries and the
+   configured Brief enter `effective_context`, while unmatched memory remains
+   local.
 2. Keep tasks 1.1 through 1.7 as the compatibility and persistence baseline.
 3. Implement one coherent task at a time and verify it before moving to the next task.
 4. Update this handoff with test evidence, migration observations, known issues, and the next safe task after each completed implementation increment.

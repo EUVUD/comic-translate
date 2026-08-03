@@ -383,6 +383,242 @@ class ContextAssemblerTests(unittest.TestCase):
             all(match.is_suggestion for match in context.sections.translation_memory_examples)
         )
 
+    def test_assemble_isolates_every_memory_section_to_the_request_language_pair(self):
+        context = ContextAssembler.assemble(
+            self.make_request(),
+            story_brief=_StoryBrief(
+                "wrong-brief",
+                "Japanese",
+                "Chinese",
+                "Wrong-language Story Brief.",
+            ),
+            canon_entries=(
+                _CanonEntry(
+                    "wrong-canon",
+                    "Japanese",
+                    "Chinese",
+                    "太郎",
+                    "Wrong-language canon target.",
+                ),
+            ),
+            translation_memory_entries=(
+                _TranslationMemoryEntry(
+                    "wrong-memory",
+                    "Japanese",
+                    "Chinese",
+                    "太郎が来た",
+                    "Wrong-language memory target.",
+                ),
+            ),
+        )
+
+        self.assertIsNone(context.sections.story_brief)
+        self.assertEqual(context.sections.canon_constraints, ())
+        self.assertEqual(context.sections.translation_memory_examples, ())
+        self.assertEqual(context.effective_context, "")
+
+    def test_assemble_keeps_active_forbidden_and_untranslatable_canon_behaviors(self):
+        request = self.make_request(
+            source_blocks=(StoryMemorySourceBlock("block-1", "太郎と花子と次郎"),),
+        )
+
+        context = ContextAssembler.assemble(
+            request,
+            canon_entries=(
+                _CanonEntry(
+                    "untranslatable",
+                    "Japanese",
+                    "English",
+                    "花子",
+                    "Hanako",
+                    category="name",
+                    behavior="untranslatable",
+                ),
+                _CanonEntry(
+                    "inactive-forbidden",
+                    "Japanese",
+                    "English",
+                    "次郎",
+                    "Jiro",
+                    category="name",
+                    behavior="forbidden",
+                    is_active=False,
+                ),
+                _CanonEntry(
+                    "forbidden",
+                    "Japanese",
+                    "English",
+                    "太郎",
+                    "Taro",
+                    category="name",
+                    behavior="forbidden",
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            [
+                (match.entry_id, match.behavior)
+                for match in context.sections.canon_constraints
+            ],
+            [("forbidden", "forbidden"), ("untranslatable", "untranslatable")],
+        )
+        self.assertIn("[Canon constraints]", context.effective_context)
+        self.assertIn("behavior=forbidden", context.effective_context)
+        self.assertIn("behavior=untranslatable", context.effective_context)
+        self.assertNotIn("次郎 -> Jiro", context.effective_context)
+
+    def test_assemble_keeps_canon_and_conflicting_memory_order_stable(self):
+        request = self.make_request(
+            source_blocks=(
+                StoryMemorySourceBlock("block-1", "太郎が来た"),
+                StoryMemorySourceBlock("block-2", "花子が来た"),
+            ),
+        )
+        canon_entries = (
+            _CanonEntry("z-long", "Japanese", "English", "太郎が来た", "Taro arrived."),
+            _CanonEntry("b-short", "Japanese", "English", "太郎", "Taro"),
+            _CanonEntry(
+                "a-long",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro has arrived.",
+            ),
+        )
+        translation_memory_entries = (
+            _TranslationMemoryEntry(
+                "z-second",
+                "Japanese",
+                "English",
+                "花子が来た",
+                "Hanako arrived.",
+            ),
+            _TranslationMemoryEntry(
+                "b-first",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro arrived.",
+            ),
+            _TranslationMemoryEntry(
+                "a-first",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro has arrived.",
+            ),
+        )
+
+        context = ContextAssembler.assemble(
+            request,
+            canon_entries=canon_entries,
+            translation_memory_entries=translation_memory_entries,
+        )
+        reordered_context = ContextAssembler.assemble(
+            request,
+            canon_entries=tuple(reversed(canon_entries)),
+            translation_memory_entries=tuple(reversed(translation_memory_entries)),
+        )
+
+        self.assertEqual(
+            [match.entry_id for match in context.sections.canon_constraints],
+            ["a-long", "z-long", "b-short"],
+        )
+        self.assertEqual(
+            [match.entry_id for match in context.sections.translation_memory_examples],
+            ["a-first", "b-first", "z-second"],
+        )
+        self.assertTrue(
+            all(match.is_suggestion for match in context.sections.translation_memory_examples[:2])
+        )
+        self.assertFalse(context.sections.translation_memory_examples[2].is_suggestion)
+        self.assertEqual(context.effective_context, reordered_context.effective_context)
+
+    def test_assemble_zero_memory_budget_preserves_long_user_instructions(self):
+        user_extra_context = "Keep every user instruction verbatim. " * 200
+        budget = StoryMemoryContextBudget(
+            max_story_memory_characters=0,
+            max_story_brief_characters=100,
+            max_canon_items=1,
+            max_translation_memory_items=1,
+        )
+
+        context = ContextAssembler.assemble(
+            self.make_request(user_extra_context=user_extra_context),
+            story_brief=_StoryBrief("brief-1", "Japanese", "English", "A school comedy."),
+            canon_entries=(
+                _CanonEntry("taro", "Japanese", "English", "太郎", "Taro"),
+            ),
+            translation_memory_entries=(
+                _TranslationMemoryEntry(
+                    "arrival",
+                    "Japanese",
+                    "English",
+                    "太郎が来た",
+                    "Taro arrived.",
+                ),
+            ),
+            budget=budget,
+        )
+
+        self.assertEqual(context.sections.user_extra_context, user_extra_context)
+        self.assertEqual(
+            context.effective_context,
+            f"[User instructions]\n{user_extra_context}",
+        )
+        self.assertIsNone(context.sections.story_brief)
+        self.assertEqual(context.sections.canon_constraints, ())
+        self.assertEqual(context.sections.translation_memory_examples, ())
+
+    def test_assemble_bounds_memory_without_rendering_raw_prior_page_history(self):
+        raw_prior_page_history = "PRIOR PAGE RAW HISTORY: " + "old dialogue " * 20
+        user_extra_context = "Keep this long user instruction. " * 200
+        request = self.make_request(
+            source_blocks=(
+                StoryMemorySourceBlock("current-block", "太郎が来た"),
+                StoryMemorySourceBlock("prior-page-block", raw_prior_page_history),
+            ),
+            user_extra_context=user_extra_context,
+        )
+        budget = StoryMemoryContextBudget(
+            max_story_memory_characters=90,
+            max_story_brief_characters=0,
+            max_canon_items=1,
+            max_translation_memory_items=1,
+        )
+
+        context = ContextAssembler.assemble(
+            request,
+            canon_entries=(
+                _CanonEntry("taro", "Japanese", "English", "太郎", "Taro"),
+            ),
+            translation_memory_entries=(
+                _TranslationMemoryEntry(
+                    "arrival",
+                    "Japanese",
+                    "English",
+                    "太郎が来た",
+                    "Taro arrived.",
+                ),
+            ),
+            budget=budget,
+        )
+
+        user_section = f"[User instructions]\n{user_extra_context}"
+        memory_context = context.effective_context.removeprefix(user_section).removeprefix(
+            "\n\n"
+        )
+        self.assertEqual(context.sections.user_extra_context, user_extra_context)
+        self.assertTrue(context.effective_context.startswith(user_section))
+        self.assertEqual(
+            [match.entry_id for match in context.sections.canon_constraints],
+            ["taro"],
+        )
+        self.assertTrue(memory_context)
+        self.assertLessEqual(len(memory_context), budget.max_story_memory_characters)
+        self.assertNotIn(raw_prior_page_history, context.effective_context)
+
     def test_assemble_truncates_brief_before_lower_priority_memory(self):
         request = self.make_request(user_extra_context="Never shorten this instruction.")
         budget = StoryMemoryContextBudget(
