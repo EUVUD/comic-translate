@@ -43,6 +43,14 @@ def _optional_text(value: str, field_name: str) -> str:
     return value
 
 
+def _non_negative_int(value: int, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{field_name} must be a non-bool int")
+    if value < 0:
+        raise ValueError(f"{field_name} must not be negative")
+    return value
+
+
 def _block_uuids(value: tuple[str, ...]) -> tuple[str, ...]:
     if not isinstance(value, tuple):
         raise TypeError("source_block_uuids must be a tuple")
@@ -53,6 +61,32 @@ def _block_uuids(value: tuple[str, ...]) -> tuple[str, ...]:
     if len(set(block_uuids)) != len(block_uuids):
         raise ValueError("source_block_uuids must not contain duplicates")
     return block_uuids
+
+
+@dataclass(frozen=True, slots=True)
+class StoryMemoryContextBudget:
+    """Deterministic limits for Story Memory prompt rendering.
+
+    ``max_story_memory_characters`` limits only rendered Story Memory sections;
+    it never truncates the user's extra translator instructions.
+    """
+
+    max_story_memory_characters: int = 4000
+    max_story_brief_characters: int = 1200
+    max_canon_items: int = 20
+    max_translation_memory_items: int = 10
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "max_story_memory_characters",
+            "max_story_brief_characters",
+            "max_canon_items",
+            "max_translation_memory_items",
+        ):
+            _non_negative_int(getattr(self, field_name), field_name)
+
+
+DEFAULT_STORY_MEMORY_CONTEXT_BUDGET = StoryMemoryContextBudget()
 
 
 @dataclass(frozen=True, slots=True)

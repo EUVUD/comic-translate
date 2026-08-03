@@ -7,10 +7,15 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from .models import (
+    AssembledStoryMemoryContext,
+    DEFAULT_STORY_MEMORY_CONTEXT_BUDGET,
     StoryMemoryAssemblyRequest,
+    StoryMemoryBriefContext,
+    StoryMemoryContextBudget,
     StoryMemoryEntryKind,
     StoryMemoryMatch,
     StoryMemoryMatchReason,
+    StoryMemoryPromptSections,
     StoryMemoryProvenance,
 )
 
@@ -38,6 +43,15 @@ class TranslationMemoryEntryLike(Protocol):
     source_text: str
     target_text: str
     status: str
+
+
+class StoryBriefLike(Protocol):
+    """The persisted Story Brief fields required by pure assembly."""
+
+    id: str
+    source_lang: str
+    target_lang: str
+    content: str
 
 
 _NO_SPACE_LANGUAGE_CODES = frozenset({"ja", "th", "zh"})
@@ -77,6 +91,15 @@ def _required_translation_memory_text(
         raise TypeError(f"translation-memory entry {field_name} must be a string")
     if not value.strip():
         raise ValueError(f"translation-memory entry {field_name} must not be empty")
+    return value
+
+
+def _required_story_brief_text(entry: StoryBriefLike, field_name: str) -> str:
+    value = getattr(entry, field_name, None)
+    if not isinstance(value, str):
+        raise TypeError(f"Story Brief {field_name} must be a string")
+    if not value.strip():
+        raise ValueError(f"Story Brief {field_name} must not be empty")
     return value
 
 
@@ -286,3 +309,262 @@ class ContextAssembler:
                 matching_block_uuids,
             ) in candidates
         )
+
+    @classmethod
+    def assemble(
+        cls,
+        request: StoryMemoryAssemblyRequest,
+        *,
+        story_brief: StoryBriefLike | None = None,
+        canon_entries: Iterable[CanonEntryLike] = (),
+        translation_memory_entries: Iterable[TranslationMemoryEntryLike] = (),
+        budget: StoryMemoryContextBudget = DEFAULT_STORY_MEMORY_CONTEXT_BUDGET,
+    ) -> AssembledStoryMemoryContext:
+        """Build bounded, auditable prompt sections without provider calls.
+
+        User instructions remain a separate highest-priority section and are
+        never shortened. The configured character limit applies only to the
+        rendered Story Memory sections, in brief/canon/example priority order.
+        """
+
+        if not isinstance(request, StoryMemoryAssemblyRequest):
+            raise TypeError("request must be a StoryMemoryAssemblyRequest")
+        if not isinstance(budget, StoryMemoryContextBudget):
+            raise TypeError("budget must be a StoryMemoryContextBudget")
+
+        brief = cls._story_brief_context(request, story_brief)
+        canon_matches = cls._deduplicate_matches(
+            cls.match_active_canon(request, canon_entries),
+            lambda match: (
+                cls.normalize_source_text(
+                    match.source_text,
+                    request.language_pair.source_lang,
+                ),
+                match.target_text,
+                match.category,
+                match.behavior,
+                match.notes,
+            ),
+        )[: budget.max_canon_items]
+        translation_memory_matches = cls._deduplicate_matches(
+            cls.match_approved_translation_memory(request, translation_memory_entries),
+            lambda match: (
+                cls.normalize_source_text(
+                    match.source_text,
+                    request.language_pair.source_lang,
+                ),
+                match.target_text,
+            ),
+        )
+        translation_memory_groups = cls._groups_with_item_limit(
+            cls._translation_memory_match_groups(
+                translation_memory_matches,
+                request.language_pair.source_lang,
+            ),
+            budget.max_translation_memory_items,
+        )
+
+        memory_sections: list[str] = []
+        selected_brief = cls._append_brief_section(memory_sections, brief, budget)
+        selected_canon = cls._append_match_section(
+            memory_sections,
+            "[Canon constraints]",
+            tuple((match,) for match in canon_matches),
+            cls._format_canon_match,
+            budget,
+        )
+        selected_translation_memory = cls._append_match_section(
+            memory_sections,
+            "[Approved translation examples]",
+            translation_memory_groups,
+            cls._format_translation_memory_match,
+            budget,
+        )
+        sections = StoryMemoryPromptSections(
+            user_extra_context=request.user_extra_context,
+            story_brief=selected_brief,
+            canon_constraints=selected_canon,
+            translation_memory_examples=selected_translation_memory,
+        )
+
+        rendered_sections: list[str] = []
+        if request.user_extra_context:
+            rendered_sections.append(
+                f"[User instructions]\n{request.user_extra_context}"
+            )
+        rendered_sections.extend(memory_sections)
+        return AssembledStoryMemoryContext(
+            request=request,
+            effective_context="\n\n".join(rendered_sections),
+            sections=sections,
+        )
+
+    @staticmethod
+    def _deduplicate_matches(
+        matches: Iterable[StoryMemoryMatch],
+        key_for_match,
+    ) -> tuple[StoryMemoryMatch, ...]:
+        deduplicated: list[StoryMemoryMatch] = []
+        seen_keys: set[object] = set()
+        for match in matches:
+            key = key_for_match(match)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                deduplicated.append(match)
+        return tuple(deduplicated)
+
+    @classmethod
+    def _translation_memory_match_groups(
+        cls,
+        matches: Iterable[StoryMemoryMatch],
+        source_language: str,
+    ) -> tuple[tuple[StoryMemoryMatch, ...], ...]:
+        """Keep every conflicting source group intact for later budget checks."""
+
+        grouped_matches: dict[tuple[str, str], list[StoryMemoryMatch]] = {}
+        for match in matches:
+            if match.is_suggestion:
+                key = (
+                    "conflict",
+                    cls.normalize_source_text(match.source_text, source_language),
+                )
+            else:
+                key = ("entry", match.entry_id)
+            grouped_matches.setdefault(key, []).append(match)
+        return tuple(tuple(group) for group in grouped_matches.values())
+
+    @staticmethod
+    def _groups_with_item_limit(
+        match_groups: Iterable[tuple[StoryMemoryMatch, ...]],
+        max_items: int,
+    ) -> tuple[tuple[StoryMemoryMatch, ...], ...]:
+        selected_groups: list[tuple[StoryMemoryMatch, ...]] = []
+        selected_item_count = 0
+        for match_group in match_groups:
+            if selected_item_count + len(match_group) <= max_items:
+                selected_groups.append(match_group)
+                selected_item_count += len(match_group)
+        return tuple(selected_groups)
+
+    @staticmethod
+    def _story_brief_context(
+        request: StoryMemoryAssemblyRequest,
+        story_brief: StoryBriefLike | None,
+    ) -> StoryMemoryBriefContext | None:
+        if story_brief is None:
+            return None
+        brief_id = _required_story_brief_text(story_brief, "id").strip()
+        source_language = _required_story_brief_text(story_brief, "source_lang")
+        target_language = _required_story_brief_text(story_brief, "target_lang")
+        if (
+            source_language != request.language_pair.source_lang
+            or target_language != request.language_pair.target_lang
+        ):
+            return None
+        content = getattr(story_brief, "content", None)
+        if not isinstance(content, str):
+            raise TypeError("Story Brief content must be a string")
+        if not content.strip():
+            return None
+        return StoryMemoryBriefContext(
+            content=content,
+            provenance=StoryMemoryProvenance(
+                entry_id=brief_id,
+                entry_kind=StoryMemoryEntryKind.STORY_BRIEF,
+                match_reason=StoryMemoryMatchReason.STORY_BRIEF_CONFIGURED,
+            ),
+        )
+
+    @classmethod
+    def _append_brief_section(
+        cls,
+        memory_sections: list[str],
+        brief: StoryMemoryBriefContext | None,
+        budget: StoryMemoryContextBudget,
+    ) -> StoryMemoryBriefContext | None:
+        if brief is None:
+            return None
+        header = "[Story Brief]"
+        body_limit = min(
+            budget.max_story_brief_characters,
+            cls._remaining_section_body_characters(memory_sections, header, budget),
+        )
+        truncated_content = cls._truncate_text(brief.content, body_limit)
+        if not truncated_content:
+            return None
+        memory_sections.append(f"{header}\n{truncated_content}")
+        return StoryMemoryBriefContext(
+            content=truncated_content,
+            provenance=brief.provenance,
+        )
+
+    @classmethod
+    def _append_match_section(
+        cls,
+        memory_sections: list[str],
+        header: str,
+        match_groups: Iterable[tuple[StoryMemoryMatch, ...]],
+        render_match,
+        budget: StoryMemoryContextBudget,
+    ) -> tuple[StoryMemoryMatch, ...]:
+        selected: list[StoryMemoryMatch] = []
+        rendered_matches: list[str] = []
+        for match_group in match_groups:
+            candidate_matches = rendered_matches + [
+                render_match(match) for match in match_group
+            ]
+            candidate_section = f"{header}\n" + "\n".join(candidate_matches)
+            if cls._memory_text_fits(memory_sections, candidate_section, budget):
+                selected.extend(match_group)
+                rendered_matches = candidate_matches
+        if rendered_matches:
+            memory_sections.append(f"{header}\n" + "\n".join(rendered_matches))
+        return tuple(selected)
+
+    @staticmethod
+    def _format_canon_match(match: StoryMemoryMatch) -> str:
+        details = [f"behavior={match.behavior}", f"category={match.category}"]
+        if match.notes:
+            details.append(f"notes={match.notes}")
+        return f"- {match.source_text} -> {match.target_text} ({'; '.join(details)})"
+
+    @staticmethod
+    def _format_translation_memory_match(match: StoryMemoryMatch) -> str:
+        conflict_suffix = " [conflicting suggestion]" if match.is_suggestion else ""
+        return f"- {match.source_text} -> {match.target_text}{conflict_suffix}"
+
+    @staticmethod
+    def _truncate_text(text: str, limit: int) -> str:
+        if limit <= 0:
+            return ""
+        if len(text) <= limit:
+            return text
+        if limit == 1:
+            return "…"
+        return f"{text[: limit - 1]}…"
+
+    @staticmethod
+    def _remaining_section_body_characters(
+        memory_sections: list[str],
+        header: str,
+        budget: StoryMemoryContextBudget,
+    ) -> int:
+        rendered_length = len("\n\n".join(memory_sections))
+        separator_length = 2 if memory_sections else 0
+        return max(
+            0,
+            budget.max_story_memory_characters
+            - rendered_length
+            - separator_length
+            - len(header)
+            - 1,
+        )
+
+    @staticmethod
+    def _memory_text_fits(
+        memory_sections: list[str],
+        candidate_section: str,
+        budget: StoryMemoryContextBudget,
+    ) -> bool:
+        rendered_sections = memory_sections + [candidate_section]
+        return len("\n\n".join(rendered_sections)) <= budget.max_story_memory_characters
