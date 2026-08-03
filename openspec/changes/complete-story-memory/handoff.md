@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning is complete. Tasks 1.1 through 2.2 are implemented (9/44); the
+Planning is complete. Tasks 1.1 through 2.3 are implemented (10/44); the
 remaining work is still apply-ready. Current branch: `feature/story-memory`.
 The user-owned `AGENTS.md` guidance update is committed separately; do not
 change it while continuing Story Memory work unless asked.
@@ -17,10 +17,22 @@ change it while continuing Story Memory work unless asked.
   block UUIDs in request order, and orders results by longer normalized term
   followed by stable entry ID without importing Qt, LangGraph, NumPy, or the
   repository implementation.
+- Added pure approved translation-memory retrieval to `ContextAssembler`. It
+  filters by the exact language pair and `approved` status, re-normalizes raw
+  source text with the same language-aware rules as Canon, and requires an
+  exact match within each current-page block. It preserves raw display text,
+  aggregates matched block UUIDs in page order, and orders candidates by first
+  matched block then stable entry ID. Different approved targets for one
+  normalized source are all retained and marked as non-binding suggestions;
+  stored preferred flags and repository ordering never silently choose one.
 - Added `tests/story_memory_context_assembler_test.py` for Unicode and
   language-aware whitespace behavior, exact language-pair and active filtering,
   per-block provenance, longer-term and stable-ID ordering, word-boundary
   preservation for spaced languages, and prevention of cross-block matches.
+- Expanded the assembler tests for approved translation-memory retrieval,
+  raw-payload preservation, language/status isolation, exact (not substring or
+  cross-block) matching, deterministic conflict suggestions, and harmless
+  duplicate targets.
 - Added framework-independent Story Memory context contracts in
   `modules/translation/context/models.py`. Immutable request, current-page
   source-block, match-reason, entry-provenance, Story Brief, prompt-section,
@@ -136,6 +148,10 @@ change it while continuing Story Memory work unless asked.
 - After task 2.2: `tests.story_memory_context_assembler_test` passed 6 tests;
   focused `*test.py` discovery passed 37 tests; changed modules compiled; and
   `git diff --check` passed.
+- After task 2.3: `tests.story_memory_context_assembler_test` passed 11 tests;
+  focused `*test.py` discovery passed 42 tests; changed modules compiled;
+  `git diff --check` and `openspec validate complete-story-memory --strict`
+  passed.
 - `uv run python -m unittest tests.story_memory_project_state_test`: passed (2 tests).
 - `uv run python -m unittest discover -s tests -p '*test.py'`: passed (6 tests).
 - `openspec status --change complete-story-memory --json`: all required planning artifacts report `done`.
@@ -148,12 +164,11 @@ change it while continuing Story Memory work unless asked.
 - `unify-langgraph-translation-workflow` remains a separate active change with no artifacts; it must not be implemented as a substitute for this change.
 - `.ctpr` migration and lazy page-blob behavior are user-data sensitive and require compatibility fixtures before schema edits.
 - The repository retains conflicting approved translation-memory candidates;
-  deterministic matching and explicit conflict resolution remain tasks 2.3 and
-  4.5 rather than being silently selected here.
-- Context contracts deliberately do not normalize, match, retrieve, truncate,
-  or render prompts yet. Active Canon matching is now implemented; approved
-  translation-memory retrieval, budgeted assembly, and prompt rendering remain
-  in tasks 2.3 and 2.4.
+  the assembler now exposes them as non-binding suggestions, while explicit
+  preference and retain-both resolution remains task 4.5.
+- Context contracts deliberately do not truncate or render prompts yet. Active
+  Canon matching and approved translation-memory retrieval are implemented;
+  budgeted assembly and prompt rendering remain in task 2.4.
 - Legacy sidecars have no persisted language pair and their path fallback for
   unsaved pages is ambiguous. The importer therefore exposes an explicit,
   saved-project-only service; controller/UI detection and any user confirmation
@@ -169,8 +184,9 @@ change it while continuing Story Memory work unless asked.
 
 ## Concrete Next Steps
 
-1. Implement task 2.3: retrieve approved translation-memory rows by normalized
-   exact source and language pair, exposing conflicts as suggestions.
+1. Implement task 2.4: add Story Brief inclusion, deduplication, item/size
+   budgets, deterministic truncation, and distinct prompt sections while
+   preserving user extra context.
 2. Keep tasks 1.1 through 1.7 as the compatibility and persistence baseline.
 3. Implement one coherent task at a time and verify it before moving to the next task.
 4. Update this handoff with test evidence, migration observations, known issues, and the next safe task after each completed implementation increment.

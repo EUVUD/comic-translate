@@ -24,6 +24,17 @@ class _CanonEntry:
     is_active: bool = True
 
 
+@dataclass(frozen=True, slots=True)
+class _TranslationMemoryEntry:
+    id: str
+    source_lang: str
+    target_lang: str
+    source_text: str
+    target_text: str
+    status: str = "approved"
+    is_preferred: bool = False
+
+
 class ContextAssemblerTests(unittest.TestCase):
     def make_request(
         self,
@@ -128,6 +139,143 @@ class ContextAssemblerTests(unittest.TestCase):
         entries = (_CanonEntry("match", "Japanese", "English", "太郎", "Taro"),)
 
         self.assertEqual(ContextAssembler.match_active_canon(request, entries), ())
+
+    def test_retrieves_approved_exact_matches_and_preserves_raw_payload(self):
+        request = self.make_request(
+            source_blocks=(
+                StoryMemorySourceBlock("block-1", "太 郎"),
+                StoryMemorySourceBlock("block-2", "太郎"),
+            )
+        )
+        entries = (
+            _TranslationMemoryEntry(
+                "taro",
+                "Japanese",
+                "English",
+                " 太 郎 ",
+                "Taro",
+            ),
+        )
+
+        matches = ContextAssembler.match_approved_translation_memory(request, entries)
+
+        self.assertEqual([match.entry_id for match in matches], ["taro"])
+        self.assertEqual(matches[0].source_text, " 太 郎 ")
+        self.assertEqual(matches[0].target_text, "Taro")
+        self.assertEqual(matches[0].provenance.source_block_uuids, ("block-1", "block-2"))
+        self.assertFalse(matches[0].is_suggestion)
+
+    def test_translation_memory_requires_approved_exact_language_pair(self):
+        request = self.make_request()
+        entries = (
+            _TranslationMemoryEntry("match", "Japanese", "English", "太郎が来た", "Taro arrived"),
+            _TranslationMemoryEntry(
+                "superseded",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Old Taro arrived",
+                status="superseded",
+            ),
+            _TranslationMemoryEntry(
+                "pending",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Pending Taro arrived",
+                status="pending",
+            ),
+            _TranslationMemoryEntry(
+                "wrong-target",
+                "Japanese",
+                "Chinese",
+                "太郎が来た",
+                "太郎来了",
+            ),
+            _TranslationMemoryEntry(
+                "wrong-source",
+                "Korean",
+                "English",
+                "太郎が来た",
+                "Taro arrived",
+            ),
+        )
+
+        matches = ContextAssembler.match_approved_translation_memory(request, entries)
+
+        self.assertEqual([match.entry_id for match in matches], ["match"])
+
+    def test_translation_memory_does_not_match_substrings_or_across_blocks(self):
+        request = self.make_request(
+            source_blocks=(
+                StoryMemorySourceBlock("block-1", "太郎が来た"),
+                StoryMemorySourceBlock("block-2", "太"),
+                StoryMemorySourceBlock("block-3", "郎"),
+            )
+        )
+        entries = (_TranslationMemoryEntry("taro", "Japanese", "English", "太郎", "Taro"),)
+
+        self.assertEqual(
+            ContextAssembler.match_approved_translation_memory(request, entries),
+            (),
+        )
+
+    def test_conflicting_translation_memory_candidates_are_stable_suggestions(self):
+        request = self.make_request(
+            source_blocks=(StoryMemorySourceBlock("block-1", "太郎が来た"),)
+        )
+        entries = (
+            _TranslationMemoryEntry(
+                "z-taro",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro arrived",
+                is_preferred=True,
+            ),
+            _TranslationMemoryEntry(
+                "a-taro",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro has arrived",
+            ),
+        )
+
+        matches = ContextAssembler.match_approved_translation_memory(request, entries)
+
+        self.assertEqual([match.entry_id for match in matches], ["a-taro", "z-taro"])
+        self.assertTrue(all(match.is_suggestion for match in matches))
+        self.assertEqual(
+            [match.target_text for match in matches],
+            ["Taro has arrived", "Taro arrived"],
+        )
+
+    def test_duplicate_translation_memory_targets_are_not_conflicts(self):
+        request = self.make_request(
+            source_blocks=(StoryMemorySourceBlock("block-1", "太郎が来た"),)
+        )
+        entries = (
+            _TranslationMemoryEntry(
+                "a-taro",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro arrived",
+            ),
+            _TranslationMemoryEntry(
+                "b-taro",
+                "Japanese",
+                "English",
+                "太郎が来た",
+                "Taro arrived",
+            ),
+        )
+
+        matches = ContextAssembler.match_approved_translation_memory(request, entries)
+
+        self.assertEqual([match.entry_id for match in matches], ["a-taro", "b-taro"])
+        self.assertTrue(all(not match.is_suggestion for match in matches))
 
 
 if __name__ == "__main__":
