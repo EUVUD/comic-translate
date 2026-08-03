@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning is complete. Tasks 1.1 through 2.3 are implemented (10/44); the
+Planning is complete. Tasks 1.1 through 2.4 are implemented (11/44); the
 remaining work is still apply-ready. Current branch: `feature/story-memory`.
 The user-owned `AGENTS.md` guidance update is committed separately; do not
 change it while continuing Story Memory work unless asked.
@@ -25,6 +25,18 @@ change it while continuing Story Memory work unless asked.
   matched block then stable entry ID. Different approved targets for one
   normalized source are all retained and marked as non-binding suggestions;
   stored preferred flags and repository ordering never silently choose one.
+- Added immutable `StoryMemoryContextBudget` limits for rendered Story Memory:
+  a total character budget plus Brief, Canon, and translation-memory item caps.
+  It rejects invalid limits and deliberately excludes the user's existing extra
+  translator instructions from truncation.
+- Added pure `ContextAssembler.assemble()` to build auditable, distinct user
+  instruction, Story Brief, Canon, and approved-example sections without any
+  provider, repository, Qt, or LangGraph dependency. It includes only a
+  language-pair-matched, non-empty Brief; semantically deduplicates Canon and
+  example payloads; truncates only the Brief; and omits lower-priority complete
+  entries when the rendered Story Memory budget is exhausted. Conflicting
+  translation-memory candidates are budgeted as a whole group, so no prompt
+  silently favors one conflicting target over another.
 - Added `tests/story_memory_context_assembler_test.py` for Unicode and
   language-aware whitespace behavior, exact language-pair and active filtering,
   per-block provenance, longer-term and stable-ID ordering, word-boundary
@@ -33,6 +45,10 @@ change it while continuing Story Memory work unless asked.
   raw-payload preservation, language/status isolation, exact (not substring or
   cross-block) matching, deterministic conflict suggestions, and harmless
   duplicate targets.
+- Expanded context model and assembler tests for immutable budgets, distinct
+  rendered sections, Brief language isolation and deterministic truncation,
+  semantic deduplication, item limits, preserved user instructions, exclusion
+  of unmatched page text, and all-or-nothing conflict-group budgets.
 - Added framework-independent Story Memory context contracts in
   `modules/translation/context/models.py`. Immutable request, current-page
   source-block, match-reason, entry-provenance, Story Brief, prompt-section,
@@ -152,6 +168,10 @@ change it while continuing Story Memory work unless asked.
   focused `*test.py` discovery passed 42 tests; changed modules compiled;
   `git diff --check` and `openspec validate complete-story-memory --strict`
   passed.
+- After task 2.4: focused context model and assembler tests passed 24 tests;
+  focused `*test.py` discovery passed 50 tests; changed modules compiled;
+  `git diff --check` and `openspec validate complete-story-memory --strict`
+  passed.
 - `uv run python -m unittest tests.story_memory_project_state_test`: passed (2 tests).
 - `uv run python -m unittest discover -s tests -p '*test.py'`: passed (6 tests).
 - `openspec status --change complete-story-memory --json`: all required planning artifacts report `done`.
@@ -164,11 +184,15 @@ change it while continuing Story Memory work unless asked.
 - `unify-langgraph-translation-workflow` remains a separate active change with no artifacts; it must not be implemented as a substitute for this change.
 - `.ctpr` migration and lazy page-blob behavior are user-data sensitive and require compatibility fixtures before schema edits.
 - The repository retains conflicting approved translation-memory candidates;
-  the assembler now exposes them as non-binding suggestions, while explicit
-  preference and retain-both resolution remains task 4.5.
-- Context contracts deliberately do not truncate or render prompts yet. Active
-  Canon matching and approved translation-memory retrieval are implemented;
-  budgeted assembly and prompt rendering remain in task 2.4.
+  the assembler exposes them as non-binding suggestions and never sends only a
+  subset of a conflicting group; explicit preference and retain-both resolution
+  remains task 4.5.
+- Context assembly now renders a bounded, structured `effective_context`, but
+  task 3.2 still must add those sections to the real direct-LLM prompt while
+  preserving existing page grouping and image context.
+- The first budget is character-based so it remains independent of provider
+  tokenizers. Provider-specific token accounting is deliberately deferred until
+  the shared translator boundary is introduced.
 - Legacy sidecars have no persisted language pair and their path fallback for
   unsaved pages is ambiguous. The importer therefore exposes an explicit,
   saved-project-only service; controller/UI detection and any user confirmation
@@ -184,9 +208,9 @@ change it while continuing Story Memory work unless asked.
 
 ## Concrete Next Steps
 
-1. Implement task 2.4: add Story Brief inclusion, deduplication, item/size
-   budgets, deterministic truncation, and distinct prompt sections while
-   preserving user extra context.
+1. Implement task 2.5: expand assembler coverage for language isolation,
+   inactive and forbidden/untranslatable Canon behavior, conflicts, ordering,
+   budgets, and exclusion of raw prior-page history.
 2. Keep tasks 1.1 through 1.7 as the compatibility and persistence baseline.
 3. Implement one coherent task at a time and verify it before moving to the next task.
 4. Update this handoff with test evidence, migration observations, known issues, and the next safe task after each completed implementation increment.

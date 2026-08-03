@@ -6,8 +6,10 @@ import unittest
 from app.projects.story_memory_types import LanguagePair
 from modules.translation.context.models import (
     AssembledStoryMemoryContext,
+    DEFAULT_STORY_MEMORY_CONTEXT_BUDGET,
     StoryMemoryAssemblyRequest,
     StoryMemoryBriefContext,
+    StoryMemoryContextBudget,
     StoryMemoryEntryKind,
     StoryMemoryMatch,
     StoryMemoryMatchReason,
@@ -53,6 +55,28 @@ class StoryMemoryContextModelTests(unittest.TestCase):
                     StoryMemorySourceBlock("block-1", "second"),
                 ),
             )
+
+    def test_context_budget_has_immutable_defaults(self):
+        budget = StoryMemoryContextBudget()
+
+        self.assertEqual(budget, DEFAULT_STORY_MEMORY_CONTEXT_BUDGET)
+        self.assertEqual(budget.max_story_memory_characters, 4000)
+        self.assertEqual(budget.max_story_brief_characters, 1200)
+        self.assertEqual(budget.max_canon_items, 20)
+        self.assertEqual(budget.max_translation_memory_items, 10)
+        with self.assertRaises(FrozenInstanceError):
+            budget.max_canon_items = 1
+
+    def test_context_budget_rejects_bool_non_int_and_negative_limits(self):
+        for field_name, invalid_value, exception_type in (
+            ("max_story_memory_characters", True, TypeError),
+            ("max_story_brief_characters", 1.5, TypeError),
+            ("max_canon_items", "20", TypeError),
+            ("max_translation_memory_items", -1, ValueError),
+        ):
+            with self.subTest(field_name=field_name, invalid_value=invalid_value):
+                with self.assertRaises(exception_type):
+                    StoryMemoryContextBudget(**{field_name: invalid_value})
 
     def test_match_requires_consistent_provenance(self):
         provenance = StoryMemoryProvenance(
