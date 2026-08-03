@@ -13,6 +13,7 @@ from .project_state_v2 import (
     STORY_MEMORY_PROJECT_UUID_KEY,
     get_project_connection,
 )
+from .story_memory_types import LanguagePair
 
 
 _CANON_BEHAVIORS = frozenset({"preferred", "forbidden", "untranslatable"})
@@ -66,16 +67,6 @@ def _required_non_negative_int(value: int, field_name: str) -> int:
     if value < 0:
         raise ValueError(f"{field_name} must not be negative")
     return value
-
-
-@dataclass(frozen=True, slots=True)
-class LanguagePair:
-    source_lang: str
-    target_lang: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "source_lang", _required_label(self.source_lang, "source_lang"))
-        object.__setattr__(self, "target_lang", _required_label(self.target_lang, "target_lang"))
 
 
 @dataclass(frozen=True, slots=True)
