@@ -61,6 +61,10 @@ def validate_translator(main: ComicTranslate, target_lang: str):
     settings = settings_page.get_all_settings()
     credentials = settings.get('credentials', {})
     translator_tool = settings['tools']['translator']
+    translator_key = getattr(settings_page.ui, "value_mappings", {}).get(
+        translator_tool,
+        translator_tool,
+    )
 
     if not translator_tool:
         Messages.show_missing_tool_error(main, QCoreApplication.translate("Messages", "Translator"))
@@ -69,7 +73,7 @@ def validate_translator(main: ComicTranslate, target_lang: str):
     # Custom uses credentials configured locally in Settings > Advanced and
     # must remain usable without an account.  Account-backed translators are
     # validated below after this local configuration path has been handled.
-    if "Custom" in translator_tool:
+    if translator_key == "Custom":
         # Custom requires api_key, api_url, and model to be configured LOCALLY
         service = tr('Custom')
         creds = credentials.get(service, {})

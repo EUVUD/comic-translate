@@ -147,6 +147,32 @@ class ValidateTranslatorTests(unittest.TestCase):
         self.assertTrue(pipeline_config.validate_translator(main, "English"))
         self.assertEqual(FakeMessages.not_logged_in_calls, 0)
 
+    def test_localized_custom_api_does_not_require_account_login(self):
+        main = FakeTranslatorMain(
+            "自定义",
+            logged_in=False,
+            credentials={
+                "自定义": {
+                    "api_key": "local-key",
+                    "api_url": "http://localhost:1234/v1",
+                    "model": "local-model",
+                }
+            },
+        )
+        main.settings_page.ui = type(
+            "ChineseUI",
+            (),
+            {
+                "tr": staticmethod(
+                    lambda text: "自定义" if text == "Custom" else text
+                ),
+                "value_mappings": {"自定义": "Custom"},
+            },
+        )()
+
+        self.assertTrue(pipeline_config.validate_translator(main, "English"))
+        self.assertEqual(FakeMessages.not_logged_in_calls, 0)
+
     def test_non_custom_translator_still_requires_account_login(self):
         main = FakeTranslatorMain("GPT-4.1", logged_in=False)
 
