@@ -752,6 +752,56 @@ class ContextAssemblerTests(unittest.TestCase):
         self.assertIsNone(context.sections.story_brief)
         self.assertEqual(context.effective_context, "")
 
+    def test_assemble_discloses_only_matching_memory_and_keeps_other_entries_local(self):
+        request = self.make_request(
+            source_blocks=(StoryMemorySourceBlock("block-1", "太郎が来た"),),
+            user_extra_context="Keep dialogue casual.",
+        )
+        matching_canon = _CanonEntry(
+            "taro",
+            "Japanese",
+            "English",
+            "太郎",
+            "Taro",
+        )
+        unmatched_canon = _CanonEntry(
+            "secret-character",
+            "Japanese",
+            "English",
+            "花子",
+            "Hanako",
+            notes="Private story note that must stay local.",
+        )
+        unmatched_memory = _TranslationMemoryEntry(
+            "secret-memory",
+            "Japanese",
+            "English",
+            "花子が来た",
+            "Hanako arrived.",
+        )
+        canon_entries = (matching_canon, unmatched_canon)
+        translation_memory_entries = (unmatched_memory,)
+
+        context = ContextAssembler.assemble(
+            request,
+            story_brief=_StoryBrief("brief-1", "Japanese", "English", "A school comedy."),
+            canon_entries=canon_entries,
+            translation_memory_entries=translation_memory_entries,
+        )
+
+        self.assertEqual(
+            [match.entry_id for match in context.sections.canon_constraints],
+            ["taro"],
+        )
+        self.assertEqual(context.sections.translation_memory_examples, ())
+        self.assertIn("A school comedy.", context.effective_context)
+        self.assertIn("太郎 -> Taro", context.effective_context)
+        self.assertNotIn("花子", context.effective_context)
+        self.assertNotIn("Hanako", context.effective_context)
+        self.assertNotIn("Private story note", context.effective_context)
+        self.assertEqual(canon_entries[1], unmatched_canon)
+        self.assertEqual(translation_memory_entries[0], unmatched_memory)
+
 
 if __name__ == "__main__":
     unittest.main()

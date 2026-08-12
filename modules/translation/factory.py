@@ -52,7 +52,12 @@ class TranslationFactory:
             Appropriate translation engine instance
         """
         # Create a cache key based on translator and language pair
-        cache_key = cls._create_cache_key(translator_key, source_lang, target_lang, settings)
+        cache_key = cls.configuration_fingerprint(
+            translator_key,
+            source_lang,
+            target_lang,
+            settings,
+        )
         
         # Return cached engine if available
         if cache_key in cls._engines:
@@ -72,6 +77,23 @@ class TranslationFactory:
         cls._engines[cache_key] = engine
         return engine
     
+
+    @classmethod
+    def configuration_fingerprint(
+        cls,
+        translator_key: str,
+        source_lang: str,
+        target_lang: str,
+        settings,
+    ) -> str:
+        """Return a stable, non-secret fingerprint of one translator setup.
+
+        The value is already used for engine reuse.  Exposing it lets the
+        translation-result cache distinguish model or credential configuration
+        changes without storing any credential material in a cache key.
+        """
+
+        return cls._create_cache_key(translator_key, source_lang, target_lang, settings)
 
     @classmethod
     def _get_engine_class(cls, translator_key: str):

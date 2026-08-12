@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 import imkit as imk
 import numpy as np
 from typing import TYPE_CHECKING, List
@@ -71,6 +72,11 @@ class ImageStateController:
         existing_state: dict | None = None,
     ) -> dict:
         state = dict(existing_state or self.main.image_states.get(file_path, {}) or {})
+        # New pages can be added after a project is already saved.  Allocate the
+        # durable identity on the GUI thread so normal translation can safely
+        # use project Story Memory before the next save persists this state.
+        if not state.get("page_uuid"):
+            state["page_uuid"] = str(uuid.uuid4())
         state.update({
             "viewer_state": viewer_state,
             "source_lang": to_canonical_language_name(

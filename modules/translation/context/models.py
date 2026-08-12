@@ -294,3 +294,26 @@ class AssembledStoryMemoryContext:
         if self.sections.story_brief is not None:
             brief_provenance = (self.sections.story_brief.provenance,)
         return brief_provenance + tuple(match.provenance for match in self.matches)
+
+
+@dataclass(frozen=True, slots=True)
+class StoryMemoryCacheIdentity:
+    """The Story Memory inputs that invalidate a translation cache entry."""
+
+    project_uuid: str
+    memory_revision: int
+    assembler_version: int
+    source_lang: str
+    target_lang: str
+    source_content_hash: str
+    user_context_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedTranslationContext:
+    """One request's provider-safe context and cache-relevant memory state."""
+
+    effective_context: str
+    assembled: AssembledStoryMemoryContext | None
+    cache_identity: StoryMemoryCacheIdentity | None
+    memory_enabled: bool

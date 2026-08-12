@@ -18,6 +18,10 @@ from modules.utils.pipeline_config import get_config, get_inpainter_backend, inp
 from modules.utils.textblock import TextBlock, sort_blk_list
 from modules.utils.translator_utils import is_renderable_translation
 from pipeline.inpainting import call_inpaint_image
+from pipeline.story_memory_context import (
+    prepare_story_memory_context,
+    translator_supports_context,
+)
 
 if TYPE_CHECKING:
     from .processor import WebtoonBatchProcessor
@@ -149,8 +153,21 @@ class ChunkMixin:
             return
         extra_context = self.main_page.settings_page.get_llm_settings()["extra_context"]
         translator = Translator(self.main_page, source_lang, target_lang)
+        translation_context = extra_context
+        if translator_supports_context(translator):
+            page_state = self.main_page.image_states.get(image_path, {})
+            prepared_context = prepare_story_memory_context(
+                self.main_page,
+                page_path=image_path,
+                page_uuid=page_state.get("page_uuid"),
+                blocks=blocks,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                user_extra_context=extra_context,
+            )
+            translation_context = prepared_context.effective_context
         try:
-            translator.translate(blocks, image, extra_context)
+            translator.translate(blocks, image, translation_context)
         except InsufficientCreditsException:
             raise
         except Exception as error:

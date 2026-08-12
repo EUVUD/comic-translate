@@ -12,10 +12,14 @@ from modules.utils.common_utils import is_close
 from modules.utils.device import resolve_device
 from modules.utils.language_utils import get_language_code, is_no_space_lang
 from modules.utils.language_utils import to_canonical_language_name
-from modules.utils.pipeline_config import validate_ocr, validate_translator, validate_custom_translator
+from modules.utils.pipeline_config import validate_ocr, validate_translator
 from modules.utils.textblock import sort_blk_list
 from modules.utils.translator_utils import is_there_text, format_translations, set_upper_case
 from pipeline.webtoon_utils import get_visible_text_items, get_first_visible_block
+from pipeline.story_memory_context import (
+    prepare_story_memory_context,
+    translator_supports_context,
+)
 
 if TYPE_CHECKING:
     from app.ui.canvas.text_item import TextBlockItem
@@ -366,17 +370,36 @@ class ManualWorkflowController:
                     source_lang = state.get("source_lang", source_lang_fallback)
                     target_lang = state.get("target_lang", target_lang_fallback)
                     translator = Translator(self.main, source_lang, target_lang)
+                    translation_context = extra_context
+                    story_memory_identity = None
+                    if translator_supports_context(translator):
+                        prepared_context = prepare_story_memory_context(
+                            self.main,
+                            page_path=file_path,
+                            page_uuid=state.get("page_uuid"),
+                            blocks=blk_list,
+                            source_lang=source_lang,
+                            target_lang=target_lang,
+                            user_extra_context=extra_context,
+                        )
+                        translation_context = prepared_context.effective_context
+                        story_memory_identity = prepared_context.cache_identity
                     cache_key = cache_manager._get_translation_cache_key(
                         image,
                         source_lang,
                         target_lang,
-                        translator_key,
+                        getattr(
+                            translator,
+                            "configuration_fingerprint",
+                            translator_key,
+                        ),
                         extra_context,
+                        story_memory_identity=story_memory_identity,
                     )
                     if cache_manager._can_serve_all_blocks_from_translation_cache(cache_key, blk_list):
                         cache_manager._apply_cached_translations_to_blocks(cache_key, blk_list)
                     else:
-                        translator.translate(blk_list, image, extra_context)
+                        translator.translate(blk_list, image, translation_context)
                         cache_manager._cache_translation_results(cache_key, blk_list)
                     set_upper_case(blk_list, upper_case)
                     results[file_path] = blk_list
@@ -430,17 +453,8 @@ class ManualWorkflowController:
             )
 
     def translate_image_with_context_workflow(self) -> None:
-        if not is_there_text(self.main.blk_list) or not validate_custom_translator(self.main):
-            return
-
-        self.main.loading.setVisible(True)
-        self.main.disable_hbutton_group()
-        self.main.run_threaded(
-            self.main.pipeline.translate_image_with_context_workflow,
-            None,
-            self.main.default_error_handler,
-            lambda: self.update_translated_text_items(False),
-        )
+        """Compatibility wrapper for the retired sidecar Context Translate action."""
+        self.translate_image(False)
 
     def _get_visible_text_items(self) -> list[TextBlockItem]:
         if not self.main.webtoon_mode:

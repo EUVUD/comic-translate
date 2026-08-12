@@ -13,12 +13,17 @@ from app.ui.dayu_widgets.qt import MPixmap
 from app.ui.main_window import ComicTranslateUI
 from app.ui.messages import Messages
 from app.ui.dayu_widgets.message import MMessage
+from app.ui.story_memory_dialog import StoryMemoryDialog
 
 from app.ui.canvas.text_item import TextBlockItem
 from app.ui.commands.box import DeleteBoxesCommand
 
+from app.projects.project_state_v2 import is_sqlite_project_file
+from app.projects.story_memory_repository import StoryMemoryRepository
+from app.projects.story_memory_types import LanguagePair
 from modules.utils.textblock import TextBlock
 from modules.utils.file_handler import FileHandler
+from modules.utils.language_utils import to_canonical_language_name
 from modules.utils.pipeline_config import validate_settings
 from modules.utils.download import mandatory_models, set_download_callback, ensure_mandatory_models
 from pipeline.main_pipeline import ComicTranslatePipeline
@@ -189,7 +194,7 @@ class ComicTranslate(ComicTranslateUI):
         self.hbutton_group.get_button_group().buttons()[3].clicked.connect(self.load_segmentation_points)
         self.hbutton_group.get_button_group().buttons()[4].clicked.connect(self.inpaint_and_set)
         self.hbutton_group.get_button_group().buttons()[5].clicked.connect(self.text_ctrl.render_text)
-        self.context_translate_button.clicked.connect(self.translate_image_with_context_workflow)
+        self.context_translate_button.clicked.connect(self.show_story_memory_dialog)
 
         self.undo_tool_group.get_button_group().buttons()[0].clicked.connect(self.undo_group.undo)
         self.undo_tool_group.get_button_group().buttons()[1].clicked.connect(self.undo_group.redo)
@@ -748,7 +753,69 @@ class ComicTranslate(ComicTranslateUI):
         self.manual_workflow_ctrl.translate_image(single_block)
 
     def translate_image_with_context_workflow(self):
-        self.manual_workflow_ctrl.translate_image_with_context_workflow()
+        """Compatibility entry point for callers of the retired sidecar workflow."""
+        self.translate_image()
+
+    def show_story_memory_dialog(self):
+        """Open project-scoped Story Memory controls after a real project save."""
+        project_file = self.project_file
+        if not project_file:
+            # Saving first gives every page a durable UUID and creates the
+            # self-contained .ctpr storage that Story Memory requires.
+            self.project_ctrl.thread_save_project(
+                post_save_callback=self.show_story_memory_dialog,
+            )
+            return
+
+        if not is_sqlite_project_file(project_file):
+            MMessage.warning(
+                text=self.tr(
+                    "Story Memory is available after this project has been saved successfully."
+                ),
+                parent=self,
+                duration=5,
+                closable=True,
+            )
+            return
+
+        source_lang = to_canonical_language_name(
+            self.s_combo.currentText(),
+            self.lang_mapping,
+        )
+        target_lang = to_canonical_language_name(
+            self.t_combo.currentText(),
+            self.lang_mapping,
+        )
+        if source_lang == "Auto":
+            MMessage.warning(
+                text=self.tr(
+                    "Choose a specific source language before configuring Story Memory."
+                ),
+                parent=self,
+                duration=5,
+                closable=True,
+            )
+            return
+
+        try:
+            dialog = StoryMemoryDialog(
+                StoryMemoryRepository.for_project_file(project_file),
+                LanguagePair(source_lang, target_lang),
+                self,
+            )
+        except Exception as error:
+            MMessage.error(
+                text=self.tr("Could not open Story Memory: {error}").format(
+                    error=str(error),
+                ),
+                parent=self,
+                duration=5,
+                closable=True,
+            )
+            return
+
+        if dialog.exec() and dialog.changes_saved:
+            self.mark_project_dirty()
 
     def _get_visible_text_items(self):
         return self.manual_workflow_ctrl._get_visible_text_items()

@@ -4,9 +4,15 @@ import logging
 from typing import TYPE_CHECKING
 from modules.utils.language_utils import to_canonical_language_name
 from .cache_manager import CacheManager
+from .story_memory_context import (
+    combine_story_memory_contexts,
+    prepare_story_memory_context,
+    translator_supports_context,
+)
 
 if TYPE_CHECKING:
     from controller import ComicTranslate
+    from modules.translation.context.request_context import StoryMemoryRequestContextService
     from .main_pipeline import ComicTranslatePipeline
 
 logger = logging.getLogger(__name__)
@@ -32,11 +38,80 @@ class TranslationHandler:
             main_page: ComicTranslate, 
             cache_manager: CacheManager, 
             pipeline: ComicTranslatePipeline,
+            request_context_service: StoryMemoryRequestContextService | None = None,
+            translator_builder=None,
         ):
         
         self.main_page = main_page
         self.cache_manager = cache_manager
         self.pipeline = pipeline
+        self.request_context_service = request_context_service
+        self.translator_builder = translator_builder or _make_translator
+
+    def _current_page_path(self):
+        image_files = getattr(self.main_page, "image_files", [])
+        page_index = getattr(self.main_page, "curr_img_idx", -1)
+        if 0 <= page_index < len(image_files):
+            return image_files[page_index]
+        return None
+
+    def _prepare_current_page_context(
+            self,
+            blocks,
+            source_lang,
+            target_lang,
+            user_extra_context,
+        ):
+        page_path = self._current_page_path()
+        image_states = getattr(self.main_page, "image_states", {})
+        state = image_states.get(page_path, {}) if page_path else {}
+        return prepare_story_memory_context(
+            self.main_page,
+            page_path=page_path,
+            page_uuid=state.get("page_uuid") if isinstance(state, dict) else None,
+            blocks=blocks,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            user_extra_context=user_extra_context,
+            service=self.request_context_service,
+        )
+
+    def _prepare_visible_webtoon_context(
+            self,
+            visible_blocks,
+            source_lang,
+            target_lang,
+            user_extra_context,
+        ):
+        """Assemble each physical page once while preserving one LLM request."""
+        page_blocks = {}
+        for block in visible_blocks:
+            page_index = getattr(block, "_page_index", None)
+            if isinstance(page_index, int):
+                page_blocks.setdefault(page_index, []).append(block)
+
+        prepared_contexts = []
+        image_files = getattr(self.main_page, "image_files", [])
+        image_states = getattr(self.main_page, "image_states", {})
+        for page_index in sorted(page_blocks):
+            if not 0 <= page_index < len(image_files):
+                continue
+            page_path = image_files[page_index]
+            state = image_states.get(page_path, {})
+            prepared_contexts.append(
+                prepare_story_memory_context(
+                    self.main_page,
+                    page_path=page_path,
+                    page_uuid=state.get("page_uuid") if isinstance(state, dict) else None,
+                    blocks=page_blocks[page_index],
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    user_extra_context="",
+                    service=self.request_context_service,
+                )
+            )
+
+        return combine_story_memory_contexts(user_extra_context, prepared_contexts)
 
     def translate_image(self, single_block=False):
         source_lang = to_canonical_language_name(
@@ -55,11 +130,27 @@ class TranslationHandler:
 
             upper_case = settings_page.ui.uppercase_checkbox.isChecked()
 
-            translator = _make_translator(self.main_page, source_lang, target_lang)
+            translator = self.translator_builder(self.main_page, source_lang, target_lang)
+            translation_context = extra_context
+            story_memory_identity = None
+            if translator_supports_context(translator):
+                prepared_context = self._prepare_current_page_context(
+                    self.main_page.blk_list,
+                    source_lang,
+                    target_lang,
+                    extra_context,
+                )
+                translation_context = prepared_context.effective_context
+                story_memory_identity = prepared_context.cache_identity
             
             # Get translation cache key
             translation_cache_key = self.cache_manager._get_translation_cache_key(
-                image, source_lang, target_lang, translator_key, extra_context
+                image,
+                source_lang,
+                target_lang,
+                getattr(translator, "configuration_fingerprint", translator_key),
+                extra_context,
+                story_memory_identity=story_memory_identity,
             )
             
             if single_block:
@@ -85,7 +176,7 @@ class TranslationHandler:
                     
                     # If we reach here, need to process the block
                     single_block_list = [blk]
-                    translator.translate(single_block_list, image, extra_context)
+                    translator.translate(single_block_list, image, translation_context)
                     
                     # Update the cache with this new result using the cache manager's method
                     self.cache_manager.update_translation_cache_for_block(translation_cache_key, blk)
@@ -103,7 +194,7 @@ class TranslationHandler:
                         all_blocks_copy.append(copy_blk)
                     
                     if all_blocks_copy:  
-                        translator.translate(all_blocks_copy, image, extra_context)
+                        translator.translate(all_blocks_copy, image, translation_context)
                         # Cache using the original blocks to maintain consistent IDs
                         self.cache_manager._cache_translation_results(translation_cache_key, self.main_page.blk_list, all_blocks_copy)
                         cached_translation = self.cache_manager._get_cached_translation_for_block(translation_cache_key, blk)
@@ -119,40 +210,19 @@ class TranslationHandler:
                     logger.info(f"Using cached translation results for all {len(self.main_page.blk_list)} blocks")
                 else:
                     # Need to run translation and cache results
-                    translator.translate(self.main_page.blk_list, image, extra_context)
+                    translator.translate(
+                        self.main_page.blk_list,
+                        image,
+                        translation_context,
+                    )
                     self.cache_manager._cache_translation_results(translation_cache_key, self.main_page.blk_list)
                     logger.info("Translation completed and cached for %d blocks", len(self.main_page.blk_list))
                 
                 _set_upper_case(self.main_page.blk_list, upper_case)
 
     def translate_image_with_context_workflow(self):
-        source_lang = to_canonical_language_name(
-            self.main_page.s_combo.currentText(),
-            self.main_page.lang_mapping,
-        )
-        target_lang = to_canonical_language_name(
-            self.main_page.t_combo.currentText(),
-            self.main_page.lang_mapping,
-        )
-        if not (self.main_page.image_viewer.hasPhoto() and self.main_page.blk_list):
-            return
-
-        from modules.translation.context.store import resolve_sidecar_db_path
-        from modules.translation.context.workflow import translate_blocks_with_context
-
-        image = self.main_page.image_viewer.get_image_array()
-        page_path = self.main_page.image_files[self.main_page.curr_img_idx]
-        db_path = resolve_sidecar_db_path(self.main_page.project_file, page_path)
-        extra_context = self.main_page.settings_page.get_llm_settings()["extra_context"]
-        project_key = self.main_page.project_file or "unsaved-project"
-        translate_blocks_with_context(
-            db_path, project_key, page_path, self.main_page,
-            source_lang, target_lang, self.main_page.blk_list, image, extra_context,
-        )
-        _set_upper_case(
-            self.main_page.blk_list,
-            self.main_page.settings_page.ui.uppercase_checkbox.isChecked(),
-        )
+        """Compatibility wrapper for the retired sidecar Context Translate action."""
+        self.translate_image()
 
     def translate_webtoon_visible_area(self, single_block=False):
         """Perform translation on the visible area in webtoon mode."""
@@ -194,11 +264,21 @@ class TranslationHandler:
         extra_context = settings_page.get_llm_settings()['extra_context']
         upper_case = settings_page.ui.uppercase_checkbox.isChecked()
         
-        translator = _make_translator(self.main_page, source_lang, target_lang)
-        translator.translate(visible_blocks, visible_image, extra_context)
-        
-        # Translation is set, now restore original coordinates
-        restore_original_block_coordinates(visible_blocks)
+        translation_context = extra_context
+        try:
+            translator = self.translator_builder(self.main_page, source_lang, target_lang)
+            if translator_supports_context(translator):
+                translation_context = self._prepare_visible_webtoon_context(
+                    visible_blocks,
+                    source_lang,
+                    target_lang,
+                    extra_context,
+                )
+            translator.translate(visible_blocks, visible_image, translation_context)
+        finally:
+            # Coordinate conversion is temporary UI state and must never leak
+            # when context preparation or a provider call raises.
+            restore_original_block_coordinates(visible_blocks)
         
         # Apply upper case if needed
         _set_upper_case(visible_blocks, upper_case)

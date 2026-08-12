@@ -31,6 +31,10 @@ from .cache_manager import CacheManager
 from .block_detection import BlockDetectionHandler
 from .inpainting import InpaintingHandler, call_inpaint_image
 from .ocr_handler import OCRHandler
+from .story_memory_context import (
+    prepare_story_memory_context,
+    translator_supports_context,
+)
 
 if TYPE_CHECKING:
     from controller import ComicTranslate
@@ -209,14 +213,33 @@ class BatchProcessor:
             extra_context = settings_page.get_llm_settings()['extra_context']
             translator_key = settings_page.get_tool_selection('translator')
             translator = Translator(self.main_page, source_lang, target_lang)
+            translation_context = extra_context
+            story_memory_identity = None
+            if translator_supports_context(translator):
+                prepared_context = prepare_story_memory_context(
+                    self.main_page,
+                    page_path=image_path,
+                    page_uuid=state.get("page_uuid"),
+                    blocks=blk_list,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    user_extra_context=extra_context,
+                )
+                translation_context = prepared_context.effective_context
+                story_memory_identity = prepared_context.cache_identity
             
             # Get translation cache key for batch processing
             translation_cache_key = self.cache_manager._get_translation_cache_key(
-                image, source_lang, target_lang, translator_key, extra_context
+                image,
+                source_lang,
+                target_lang,
+                getattr(translator, "configuration_fingerprint", translator_key),
+                extra_context,
+                story_memory_identity=story_memory_identity,
             )
             
             try:
-                translator.translate(blk_list, image, extra_context)
+                translator.translate(blk_list, image, translation_context)
                 # Cache the translation results for potential future use
                 self.cache_manager._cache_translation_results(translation_cache_key, blk_list)
             except InsufficientCreditsException:
@@ -459,4 +482,3 @@ class BatchProcessor:
                 self.main_page.blk_list = blk_list
 
             self.emit_progress(index, total_images, 10, 10, False)
-

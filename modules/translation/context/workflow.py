@@ -19,18 +19,13 @@ class ContextTranslationWorkflow:
 
     @classmethod
     def from_existing_translator(cls, store, main_page, source_lang, target_lang):
-        def translate(blocks, image, extra_context):
-            from modules.translation.llm.custom import CustomTranslation
+        from modules.translation.processor import Translator
 
-            engine = CustomTranslation()
-            engine.initialize(main_page.settings_page, source_lang, target_lang, "Custom")
-            engine.translate(
-                blocks,
-                image,
-                extra_context,
-            )
-
-        return cls(store, translate)
+        # Kept only for direct callers of the legacy sidecar adapter.  It now
+        # honors the user's normal translator selection rather than creating a
+        # hard-coded Custom provider.
+        translator = Translator(main_page, source_lang, target_lang)
+        return cls(store, translator.translate)
 
     def compile_graph(self):
         from langgraph.graph import END, StateGraph
