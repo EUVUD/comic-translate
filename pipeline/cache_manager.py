@@ -209,12 +209,51 @@ class CacheManager:
             logger.debug(f"Available block IDs in cache: {list(cached_results.keys())}")
             return None  # Indicate block needs processing
 
-    def _get_translation_cache_key(self, image, source_lang, target_lang, translator_key, extra_context):
-        """Generate cache key for translation results"""
+    def _get_translation_cache_key(
+        self,
+        image,
+        source_lang,
+        target_lang,
+        translator_key,
+        extra_context,
+        *,
+        story_memory_identity=None,
+    ):
+        """Generate a translation cache key, including enabled Story Memory state."""
         image_hash = self._generate_image_hash(image)
         # Include extra_context in cache key since it affects translation results
         context_hash = hashlib.md5(extra_context.encode()).hexdigest() if extra_context else "no_context"
-        return (image_hash, translator_key, source_lang, target_lang, context_hash)
+        base_key = (image_hash, translator_key, source_lang, target_lang, context_hash)
+        if story_memory_identity is None:
+            return base_key
+
+        memory_components = self._story_memory_cache_components(story_memory_identity)
+        return base_key + ("story-memory",) + memory_components
+
+    @staticmethod
+    def _story_memory_cache_components(story_memory_identity):
+        required_fields = (
+            "project_uuid",
+            "memory_revision",
+            "assembler_version",
+            "source_lang",
+            "target_lang",
+            "source_content_hash",
+            "user_context_hash",
+        )
+        try:
+            components = tuple(
+                getattr(story_memory_identity, field_name)
+                for field_name in required_fields
+            )
+        except AttributeError as error:
+            raise TypeError(
+                "story_memory_identity must expose the Story Memory cache identity fields"
+            ) from error
+
+        if not all(isinstance(component, (str, int)) for component in components):
+            raise TypeError("story_memory_identity contains an invalid cache component")
+        return components
 
     def _is_translation_cached(self, cache_key):
         """Check if translation results are cached for this image/translator/language combination"""
@@ -343,4 +382,4 @@ class CacheManager:
         for block in block_list:
             cached_translation = self._get_cached_translation_for_block(cache_key, block)
             if cached_translation is not None: 
-                block.translation = cached_translation  
+                block.translation = cached_translation

@@ -49,12 +49,12 @@ class WorkspaceMixin:
         for button in self.hbutton_group.get_button_group().buttons():
             button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
 
-        self.context_translate_button = MPushButton(self.tr("Context Translate"))
+        self.context_translate_button = MPushButton(self.tr("Story Memory…"))
         self.context_translate_button.set_dayu_size(dayu_theme.small)
         self.context_translate_button.setEnabled(True)
         self.context_translate_button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.context_translate_button.setToolTip(
-            self.tr("Translate the current page with the experimental context workflow")
+            self.tr("Configure project Story Memory used by normal translation")
         )
 
         self.progress_bar = MProgressBar().auto_color()

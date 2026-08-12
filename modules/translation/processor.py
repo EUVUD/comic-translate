@@ -32,6 +32,12 @@ class Translator:
         self.source_lang_en = self._get_english_lang(main_page, self.source_lang)
         self.target_lang = target_lang
         self.target_lang_en = self._get_english_lang(main_page, self.target_lang)
+        self.configuration_fingerprint = TranslationFactory.configuration_fingerprint(
+            self.translator_key,
+            self.source_lang_en,
+            self.target_lang_en,
+            self.settings,
+        )
         
         # Create appropriate engine using factory
         self.engine = TranslationFactory.create_engine(
@@ -41,8 +47,14 @@ class Translator:
             self.translator_key
         )
         
-        # Track engine type for method dispatching
+        # ``UserTranslator`` proxies a selected direct LLM through the account
+        # API.  It is not an ``LLMTranslation`` subclass, but it accepts the
+        # same image and extra-context arguments.  Keep the historical type
+        # flag while exposing the actual request capability used by pipelines.
         self.is_llm_engine = isinstance(self.engine, LLMTranslation)
+        self.supports_context = self.is_llm_engine or bool(
+            getattr(self.engine, "is_llm", False)
+        )
     
     def _get_translator_key(self, localized_translator: str) -> str:
         """
@@ -94,7 +106,7 @@ class Translator:
         Returns:
             List of updated TextBlock objects with translations
         """
-        if self.is_llm_engine:
+        if self.supports_context:
             # LLM translators need image and extra context
             return self.engine.translate(blk_list, image, extra_context)
         else:

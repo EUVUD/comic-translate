@@ -58,14 +58,14 @@ class ContextTranslationWorkflowTests(unittest.TestCase):
         self.assertEqual(translations, ["tr:hello", "tr:world"])
         self.assertTrue(any("bonjour" in value for value in context_outputs))
 
-    def test_context_workflow_uses_custom_translator(self):
+    def test_legacy_context_adapter_uses_the_normal_translator_selection(self):
         workflow_source = Path(
             "modules/translation/context/workflow.py"
         ).read_text()
 
-        self.assertIn("CustomTranslation", workflow_source)
-        self.assertIn('engine.initialize(main_page.settings_page, source_lang, target_lang, "Custom")', workflow_source)
-        self.assertNotIn("from modules.translation.processor import Translator", workflow_source)
+        self.assertIn("from modules.translation.processor import Translator", workflow_source)
+        self.assertIn("translator = Translator(main_page, source_lang, target_lang)", workflow_source)
+        self.assertNotIn("CustomTranslation", workflow_source)
 
 
 if __name__ == "__main__":
