@@ -82,6 +82,32 @@ class FakeMain:
         self.settings_page = FakeSettingsPage(ocr_tool, logged_in)
 
 
+class FakeTranslatorSettingsPage:
+    def __init__(self, translator_tool, logged_in, credentials=None):
+        self._translator_tool = translator_tool
+        self._logged_in = logged_in
+        self._credentials = credentials or {}
+        self.ui = type("UI", (), {"tr": staticmethod(lambda text: text)})()
+
+    def get_all_settings(self):
+        return {
+            "tools": {"translator": self._translator_tool},
+            "credentials": self._credentials,
+        }
+
+    def is_logged_in(self):
+        return self._logged_in
+
+
+class FakeTranslatorMain:
+    def __init__(self, translator_tool, logged_in, credentials=None):
+        self.settings_page = FakeTranslatorSettingsPage(
+            translator_tool,
+            logged_in,
+            credentials,
+        )
+
+
 class ValidateOCRTests(unittest.TestCase):
     def setUp(self):
         FakeMessages.reset()
@@ -98,6 +124,34 @@ class ValidateOCRTests(unittest.TestCase):
     def test_missing_ocr_tool_still_fails(self):
         self.assertFalse(pipeline_config.validate_ocr(FakeMain("")))
         self.assertEqual(FakeMessages.missing_tool_calls, 1)
+
+
+class ValidateTranslatorTests(unittest.TestCase):
+    def setUp(self):
+        FakeMessages.reset()
+        pipeline_config.Messages = FakeMessages
+
+    def test_custom_api_does_not_require_account_login(self):
+        main = FakeTranslatorMain(
+            "Custom",
+            logged_in=False,
+            credentials={
+                "Custom": {
+                    "api_key": "local-key",
+                    "api_url": "http://localhost:1234/v1",
+                    "model": "local-model",
+                }
+            },
+        )
+
+        self.assertTrue(pipeline_config.validate_translator(main, "English"))
+        self.assertEqual(FakeMessages.not_logged_in_calls, 0)
+
+    def test_non_custom_translator_still_requires_account_login(self):
+        main = FakeTranslatorMain("GPT-4.1", logged_in=False)
+
+        self.assertFalse(pipeline_config.validate_translator(main, "English"))
+        self.assertEqual(FakeMessages.not_logged_in_calls, 1)
 
 
 if __name__ == "__main__":
