@@ -66,11 +66,9 @@ def validate_translator(main: ComicTranslate, target_lang: str):
         Messages.show_missing_tool_error(main, QCoreApplication.translate("Messages", "Translator"))
         return False
 
-    if not settings_page.is_logged_in():
-        Messages.show_not_logged_in_error(main)
-        return False
-
-    # Credential checks
+    # Custom uses credentials configured locally in Settings > Advanced and
+    # must remain usable without an account.  Account-backed translators are
+    # validated below after this local configuration path has been handled.
     if "Custom" in translator_tool:
         # Custom requires api_key, api_url, and model to be configured LOCALLY
         service = tr('Custom')
@@ -80,6 +78,10 @@ def validate_translator(main: ComicTranslate, target_lang: str):
             Messages.show_custom_not_configured_error(main)
             return False
         return True
+
+    if not settings_page.is_logged_in():
+        Messages.show_not_logged_in_error(main)
+        return False
         
     return True
 
