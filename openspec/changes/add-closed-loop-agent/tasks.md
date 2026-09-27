@@ -24,20 +24,21 @@
 
 ## 3. Actions, Observations, and Jobs
 
-- [ ] 3.1 Add read-only observations: application state, pages, page blocks, batch report, settings, artifacts, and page previews.
-- [ ] 3.2 Add job handles that report status, progress, and results, and resolve from existing completion signals and callbacks.
-- [ ] 3.3 Add input actions: load images, archives, and PDFs, and open `.ctpr` projects.
-- [ ] 3.4 Add configuration actions for languages, tools, render options, and webtoon mode. They take canonical names and map them to localized labels.
-- [ ] 3.5 Add translation actions:
+- [x] 3.1 Add read-only observations: application state, pages, page blocks, batch report, settings, artifacts, and page previews.
+- [x] 3.2 Add job handles that report status, progress, and results, and resolve from existing completion signals and callbacks.
+- [x] 3.3 Add input actions: load images, archives, and PDFs, and open `.ctpr` projects.
+- [x] 3.4 Add configuration actions for languages, tools, render options, and webtoon mode. They take canonical names and map them to localized labels.
+- [x] 3.5 Add translation actions:
   - translate pages;
   - retry skipped pages;
-  - skip or unskip pages;
-  - edit a block translation as an undoable command.
-- [ ] 3.6 Add save and export actions that use the controller internals that open no dialogs. They cover project, image, archive, PDF, and PSD outputs.
-- [ ] 3.7 Add postcondition checks and structured errors to every action.
-- [ ] 3.8 Add T0 contract tests, using fixture engines, for every action and observation.
-- [ ] 3.9 Add import tests proving that normal application startup imports neither `agent`, `mcp`, nor `inspect_ai`.
-- [ ] 3.10 Write a state snapshot after every mutating action.
+  - skip or unskip pages.
+- [x] 3.6 Add save and export actions that use the controller internals that open no dialogs. They cover project, PDF, and archive (CBZ, CB7, ZIP) outputs.
+- [x] 3.7 Add postcondition checks and structured errors to every action.
+- [x] 3.8 Add T0 contract tests, using fixture engines, for every action and observation.
+- [x] 3.9 Add import tests proving that normal application startup imports neither `agent`, `mcp`, nor `inspect_ai`.
+- [x] 3.10 Write a state snapshot after every mutating action.
+- [ ] 3.11 Add an action that edits a block translation as an undoable command.
+- [ ] 3.12 Add PSD and image-folder exports.
 
 ## 4. Tool Registry and MCP Server
 

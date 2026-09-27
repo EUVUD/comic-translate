@@ -135,7 +135,9 @@ Alternatives considered:
 
 The agent loop and LLM calls run off the GUI thread. An `AppSession` dispatcher moves every action onto the GUI thread through a queued signal connection, paired with a result future that returns the outcome to the caller's thread. A queued signal behaves the same on every supported PySide6 version. Calls made on the GUI thread run immediately, so a GUI-thread caller never waits on itself.
 
-Long-running work reuses `main.run_threaded`. Its existing completion signals and callbacks resolve job handles, which expose status, progress, and results through `get_job` and `wait_job`. Jobs work the same for in-process and MCP clients and do not depend on any protocol-specific support for long-running tasks.
+Long-running work reuses `main.run_threaded`, which runs operations one at a time. A no-op queued with `run_finish_only` after an action's work therefore finishes only once that work and its callbacks have run, and it resolves the job. Failures reach the job through `ComicTranslate.task_failed`, a signal `default_error_handler` emits, because many failures are otherwise shown only as a toast. Jobs expose status, progress, and results through `get_job` and `wait_job`. They work the same for in-process and MCP clients and do not depend on any protocol-specific support for long-running tasks.
+
+Completion callbacks can queue follow-up work, such as the autosave after a translation run. A session therefore waits until the task queue is empty and no worker thread is running before it closes; closing earlier releases the project store under a running save and crashes the process.
 
 ### 3. Replace blocking prompts with an interaction policy in agent mode
 
@@ -360,7 +362,8 @@ Inputs come from a synthetic page generator that draws known text into speech bu
 - **Qt threading bugs in the dispatcher** → Use a single dispatcher, assert GUI-thread execution in tests, and call actions from worker threads in tests.
 - **Unintended credit spending or data loss** → Use the null keyring in evaluation, the policy gate with `spends_credits` and `destructive` annotations, sandboxed filesystem roots, and deny destructive actions by default in agent mode.
 - **Prompt injection through comic text** → Delimit page text as untrusted data, forbid following it in the system prompt, and measure resistance in T3 scenarios.
-- **Hallucinated reports** → Generate reports only from recorded observations, and score their honesty against the final state.
+- **Hallucinated reports** → Generate reports only from recorded observations, and score their honesty against the final state. Batch results also list pages where no text was detected and blocks left untranslated, which the application's own batch report counts as completed.
+- **Closing while a background save runs** → Sessions wait until the application is idle before closing. The application's own close handler has the same race: it releases the project store before waiting for background work. That fix is proposed separately.
 - **Settings isolation differs by platform** → `XDG_CONFIG_HOME` isolates `QSettings` on Linux. On Windows and macOS, the 20 `QSettings("ComicLabs", "ComicTranslate")` constructions must first go through one helper before hermetic runs are supported there.
 - **Inspect integration gaps** → Run a time-boxed spike with explicit exit criteria, with a fallback runner on the same core.
 - **Benchmark overfitting** → Keep a separate `holdout` split used only for release gates, and add regression scenarios to `dev`.
