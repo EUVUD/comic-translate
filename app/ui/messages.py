@@ -1,6 +1,7 @@
 from .dayu_widgets.message import MMessage
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6 import QtWidgets
+from .interaction import run_modal
 
 class Messages:
 
@@ -94,7 +95,7 @@ class Messages:
             QtWidgets.QMessageBox.ButtonRole.AcceptRole,
         )
         msg.setDefaultButton(ok_btn)
-        msg.exec()
+        run_modal(msg, "messages.insufficient_credits")
 
         if msg.clickedButton() == buy_btn:
             settings_page = getattr(parent, "settings_page", None)
@@ -148,7 +149,7 @@ class Messages:
         ok_btn = msg.addButton(QCoreApplication.translate("Messages", "OK"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
         msg.addButton(QCoreApplication.translate("Messages", "Close"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
         msg.setDefaultButton(ok_btn)
-        msg.exec()
+        run_modal(msg, "messages.error_details")
 
         if msg.clickedButton() == copy_btn:
             try:

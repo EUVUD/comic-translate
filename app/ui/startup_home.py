@@ -10,6 +10,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from send2trash import send2trash
 
 from .dayu_widgets import dayu_theme
+from .interaction import run_modal
 
 if TYPE_CHECKING:
     pass
@@ -350,7 +351,7 @@ class _RecentRow(QtWidgets.QFrame):
             QtWidgets.QMessageBox.ButtonRole.RejectRole,
         )
         msg_box.setDefaultButton(cancel_btn)
-        msg_box.exec()
+        run_modal(msg_box, "startup_home.delete_project_file")
 
         if msg_box.clickedButton() is not delete_btn:
             return

@@ -16,6 +16,7 @@ from app.account.auth.auth_client import AuthClient, USER_INFO_GROUP, \
     EMAIL_KEY, TIER_KEY, CREDITS_KEY, MONTHLY_CREDITS_KEY
 from app.account.config import API_BASE_URL, FRONTEND_BASE_URL
 from app.update_checker import UpdateChecker
+from app.ui.interaction import run_modal
 from modules.utils.paths import get_user_data_dir, get_default_project_autosave_dir
 
 
@@ -261,7 +262,7 @@ class SettingsPage(QtWidgets.QWidget):
         color_dialog = QtWidgets.QColorDialog()
         color_dialog.setCurrentColor(default_color)
         
-        if color_dialog.exec() == QtWidgets.QDialog.Accepted:
+        if run_modal(color_dialog, "settings.pick_color") == QtWidgets.QDialog.Accepted:
             color = color_dialog.selectedColor()
             if color.isValid():
                 button = self.ui.color_button if not outline else self.ui.outline_color_button
@@ -515,7 +516,7 @@ class SettingsPage(QtWidgets.QWidget):
         msg_box.setText(text)
         ok_btn = msg_box.addButton(self.tr("OK"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
         msg_box.setDefaultButton(ok_btn)
-        msg_box.exec()
+        run_modal(msg_box, "settings.message")
 
     def start_buy_credits_flow(self):
         """Trigger the existing credits purchase flow."""
@@ -529,7 +530,7 @@ class SettingsPage(QtWidgets.QWidget):
         yes_btn = msg_box.addButton(self.tr("Yes"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
         no_btn = msg_box.addButton(self.tr("No"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
         msg_box.setDefaultButton(yes_btn if default_yes else no_btn)
-        msg_box.exec()
+        run_modal(msg_box, "settings.confirm")
         return msg_box.clickedButton() == yes_btn
 
     def show_restart_dialog(self, new_language):
@@ -883,7 +884,7 @@ class SettingsPage(QtWidgets.QWidget):
             dotted_ask_btn = msg_box.addButton(self.tr("Skip This Version"), QtWidgets.QMessageBox.ButtonRole.ApplyRole)
         
         msg_box.setDefaultButton(download_btn)
-        msg_box.exec()
+        run_modal(msg_box, "settings.update_available")
 
         if msg_box.clickedButton() == download_btn:
             self.start_download(download_url)

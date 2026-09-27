@@ -21,6 +21,7 @@ from app.ui.canvas.text_item import TextBlockItem
 from app.ui.canvas.text.text_item_properties import TextItemProperties
 from app.ui.canvas.save_renderer import ImageSaveRenderer
 from app.ui.export_chapters_dialog import ExportChaptersDialog, ExportChapterRow
+from app.ui.interaction import run_modal
 from app.controllers.psd_exporter import PsdPageData, export_psd_pages
 from app.projects.project_state import (
     close_state_store,
@@ -457,7 +458,7 @@ class ProjectController:
         restore_btn = msg_box.addButton(self.main.tr("Restore"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
         discard_btn = msg_box.addButton(self.main.tr("Discard"), QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
         msg_box.setDefaultButton(restore_btn)
-        msg_box.exec()
+        run_modal(msg_box, "projects.restore_recovery")
 
         if msg_box.clickedButton() == restore_btn:
             self.restore_recovery_project(recovery_file)
@@ -590,7 +591,7 @@ class ProjectController:
             self._build_export_filename,
             parent=self.main,
         )
-        if dialog.exec() != QtWidgets.QDialog.Accepted:
+        if run_modal(dialog, "projects.export_chapters") != QtWidgets.QDialog.Accepted:
             return None
         chapter_names_by_path = dialog.chapter_names_by_path()
         self._persist_export_group_names(chapter_names_by_path)

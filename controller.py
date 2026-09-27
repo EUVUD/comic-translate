@@ -12,6 +12,7 @@ from PySide6.QtGui import QUndoGroup, QUndoStack, QIcon
 from app.ui.dayu_widgets.qt import MPixmap
 from app.ui.main_window import ComicTranslateUI
 from app.ui.messages import Messages
+from app.ui.interaction import run_modal
 from app.ui.dayu_widgets.message import MMessage
 from app.ui.story_memory_dialog import StoryMemoryDialog
 
@@ -814,7 +815,7 @@ class ComicTranslate(ComicTranslateUI):
             )
             return
 
-        if dialog.exec() and dialog.changes_saved:
+        if run_modal(dialog, "story_memory.dialog") and dialog.changes_saved:
             self.mark_project_dirty()
 
     def _get_visible_text_items(self):
@@ -934,7 +935,7 @@ class ComicTranslate(ComicTranslateUI):
                 msg_box.addButton(self.tr("Don't Save"), QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
                 cancel_btn = msg_box.addButton(self.tr("Cancel"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
                 msg_box.setDefaultButton(save_btn)
-                msg_box.exec()
+                run_modal(msg_box, "main_window.unsaved_changes")
                 clicked = msg_box.clickedButton()
 
                 if clicked == save_btn:

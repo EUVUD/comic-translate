@@ -12,6 +12,7 @@ from ...dayu_widgets.menu import MMenu
 from ...dayu_widgets.push_button import MPushButton
 from ...dayu_widgets.qt import MIcon
 from ...dayu_widgets.tool_button import MToolButton
+from ...interaction import run_modal
 
 
 class NavRailMixin:
@@ -265,7 +266,7 @@ class NavRailMixin:
             yes_btn = msg_box.addButton(self.tr("Yes"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
             no_btn = msg_box.addButton(self.tr("No"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
             msg_box.setDefaultButton(no_btn)
-            msg_box.exec()
+            run_modal(msg_box, "main_window.confirm_new_project")
             return msg_box.clickedButton() == yes_btn
         return True
 

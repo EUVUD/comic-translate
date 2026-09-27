@@ -4,6 +4,7 @@ from PySide6 import QtGui, QtWidgets
 from PySide6.QtGui import QFontDatabase
 
 from .constants import user_font_path
+from ..interaction import run_modal
 
 
 class ToolStateMixin:
@@ -167,7 +168,7 @@ class ToolStateMixin:
         default_color = QtGui.QColor("#000000")
         color_dialog = QtWidgets.QColorDialog()
         color_dialog.setCurrentColor(default_color)
-        if color_dialog.exec() == QtWidgets.QDialog.Accepted:
+        if run_modal(color_dialog, "main_window.pick_color") == QtWidgets.QDialog.Accepted:
             return color_dialog.selectedColor()
 
     def set_font(self, font_family: str):
