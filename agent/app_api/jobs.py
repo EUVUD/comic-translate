@@ -57,26 +57,49 @@ class JobTracker:
         ``finish`` checks postconditions, fills ``job.result`` and calls
         ``job.fail`` for anything that went wrong.
         """
-        job = Job(id=f"{kind}-{next(self._ids)}", kind=kind)
-        self.jobs[job.id] = job
+        job = self._new(kind)
         self._window.task_failed.connect(job.fail)
 
         def complete() -> None:
             self._window.task_failed.disconnect(job.fail)
-            try:
-                finish(job)
-            except Exception as exc:  # a failed postcondition check fails the job
-                job.fail(type(exc).__name__, str(exc))
-            job.status = "failed" if job.errors else "succeeded"
-            job.future.set_result(job)
+            self._run(job, finish)
+            self._complete(job)
 
         try:
             begin()
         except Exception as exc:
             job.fail(type(exc).__name__, str(exc))
             self._window.task_failed.disconnect(job.fail)
-            job.status = "failed"
-            job.future.set_result(job)
-            return job
+            return self._complete(job)
         self._window.run_finish_only(complete)
+        return job
+
+    def run_now(self, kind: str, action: Callable[[Job], None]) -> Job:
+        """Run a quick action immediately and return its finished job."""
+        job = self._new(kind)
+        self._run(job, action)
+        return self._complete(job)
+
+    def rejected(self, kind: str, error_type: str, message: str) -> Job:
+        """A job refused before it started, for example because of bad arguments."""
+        job = self._new(kind)
+        job.fail(error_type, message)
+        return self._complete(job)
+
+    def _new(self, kind: str) -> Job:
+        job = Job(id=f"{kind}-{next(self._ids)}", kind=kind)
+        self.jobs[job.id] = job
+        return job
+
+    @staticmethod
+    def _run(job: Job, step: Callable[[Job], None]) -> None:
+        try:
+            step(job)
+        except Exception as exc:  # a failed postcondition check fails the job
+            job.fail(type(exc).__name__, str(exc))
+
+    @staticmethod
+    def _complete(job: Job) -> Job:
+        job.status = "failed" if job.errors else "succeeded"
+        job.future.set_result(job)
         return job

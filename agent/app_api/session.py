@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import observations
+from .actions import AppActions
 from .dispatch import GuiDispatcher
 from .hermetic import HermeticEnvironment
 from .interaction import AgentInteractionPolicy
+from .jobs import JobTracker
 
 
 class AppSession:
@@ -32,6 +34,8 @@ class AppSession:
         self.environment = environment
         self.policy = policy
         self.dispatcher = GuiDispatcher(window)
+        self.jobs = JobTracker(window)
+        self.actions = AppActions(self)
         self._owns_window = owns_window
         self._closed = False
 
