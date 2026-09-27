@@ -8,12 +8,18 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from agent.app_api.observations import snapshot, write_snapshot
+import zipfile
+
+from agent.app_api.observations import list_artifacts, page_detail, snapshot, write_snapshot
 
 
 @dataclass
 class _Block:
     translation: str = ""
+    text: str = ""
+    xyxy: tuple = (0, 0, 10, 10)
+    bubble_xyxy: tuple | None = None
+    text_class: str = "text_free"
 
 
 @dataclass
@@ -54,7 +60,7 @@ def _window(*, webtoon_mode: bool = False) -> SimpleNamespace:
             },
         },
         # Live state of the displayed page (index 0), not yet saved back.
-        blk_list=[_Block("hello"), _Block("")],
+        blk_list=[_Block("hello", text="こんにちは", xyxy=(1, 2, 30, 40), bubble_xyxy=(0, 0, 32, 44), text_class="text_bubble"), _Block("")],
         image_patches={"/sandbox/inputs/02.png": [{"bbox": [0, 0, 4, 4]}, {"bbox": [4, 4, 8, 8]}]},
         image_viewer=SimpleNamespace(text_items=[object()]),
         batch_report_ctrl=SimpleNamespace(_latest_batch_report={
@@ -116,6 +122,47 @@ class SnapshotTests(unittest.TestCase):
 
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), second)
             self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["state.json"])
+
+
+class PageDetailTests(unittest.TestCase):
+    def test_displayed_page_lists_its_live_blocks(self):
+        detail = page_detail(_window(), 0)
+
+        self.assertEqual(detail["blocks"], 2)
+        self.assertEqual(detail["block_details"][0], {
+            "index": 0,
+            "xyxy": [1, 2, 30, 40],
+            "bubble_xyxy": [0, 0, 32, 44],
+            "text_class": "text_bubble",
+            "text": "こんにちは",
+            "translation": "hello",
+        })
+
+    def test_other_pages_list_their_saved_blocks(self):
+        detail = page_detail(_window(), 1)
+
+        self.assertEqual([block["translation"] for block in detail["block_details"]], ["one", "  ", "two"])
+        self.assertIsNone(detail["block_details"][0]["bubble_xyxy"])
+
+
+class ArtifactTests(unittest.TestCase):
+    def test_exports_report_their_page_count(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with zipfile.ZipFile(root / "vol1.cbz", "w") as archive:
+                archive.writestr("01.png", b"x")
+                archive.writestr("02.png", b"x")
+                archive.writestr("readme.txt", b"x")
+            (root / "notes.txt").write_text("hi", encoding="utf-8")
+            (root / "broken.pdf").write_bytes(b"not a pdf")
+
+            artifacts = {Path(entry["path"]).name: entry for entry in list_artifacts(root)}
+
+        self.assertEqual(artifacts["vol1.cbz"]["pages"], 2)
+        self.assertNotIn("pages", artifacts["notes.txt"])
+        self.assertEqual(artifacts["notes.txt"]["bytes"], 2)
+        self.assertIsNone(artifacts["broken.pdf"]["pages"])
+        self.assertIn("error", artifacts["broken.pdf"])
 
 
 if __name__ == "__main__":

@@ -14,13 +14,8 @@ import os
 from typing import Any, Sequence
 
 from . import observations
+from .formats import EXPORT_EXTENSIONS, INPUT_EXTENSIONS, PSD_EXTENSION, count_pages
 from .jobs import Job
-
-IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif")
-DOCUMENT_EXTENSIONS = (".pdf", ".epub")
-ARCHIVE_EXTENSIONS = (".zip", ".rar", ".7z", ".tar", ".cbz", ".cbr", ".cb7", ".cbt")
-PSD_EXTENSION = ".psd"
-INPUT_EXTENSIONS = IMAGE_EXTENSIONS + DOCUMENT_EXTENSIONS + ARCHIVE_EXTENSIONS + (PSD_EXTENSION,)
 
 # Settings-page combo box for each kind of engine.
 TOOL_COMBOS = {
@@ -30,7 +25,6 @@ TOOL_COMBOS = {
     "detector": "detector_combo",
 }
 CUSTOM_CREDENTIAL_FIELDS = ("api_key", "api_url", "model")
-EXPORT_EXTENSIONS = (".pdf", ".cbz", ".cb7", ".zip")
 
 
 class AppActions:
@@ -342,13 +336,52 @@ class AppActions:
                 output = group["output_path"]
                 expected = len(group["page_indices"])
                 written = os.path.isfile(output) and os.path.getmtime(output) != existing.get(output)
-                found = _count_pages(output) if written else 0
+                found = count_pages(output) if written else 0
                 if found != expected:
                     job.fail("ExportIncomplete", f"{output} has {found} of {expected} pages")
                 outputs.append({"path": output, "pages": found, "expected_pages": expected})
             job.result["outputs"] = outputs
 
         return self._jobs.start("export", lambda: controller._run_export_plan(plan), finish)
+
+    def render_page_preview(self, index: int, path: str) -> Job:
+        """Render one page as it would be exported, to a PNG at ``path``.
+
+        Nothing in the session changes; use it to check a page visually.
+        """
+        window = self._window
+        if not 0 <= index < len(window.image_files):
+            return self._jobs.rejected(
+                "render_page_preview", "ValueError", f"page index must be between 0 and {len(window.image_files) - 1}"
+            )
+        path = os.path.normpath(os.path.abspath(path))
+        if not path.lower().endswith(".png"):
+            return self._jobs.rejected("render_page_preview", "ValueError", f"previews are PNG files: {path}")
+
+        def apply(job: Job) -> None:
+            from app.ui.canvas.save_renderer import ImageSaveRenderer
+
+            file_path = window.image_files[index]
+            # The same steps the export uses for each page.
+            window.image_ctrl.save_current_image_state()
+            states = window.project_ctrl._build_all_pages_current_state()
+            image = window.load_image(file_path)
+            renderer = ImageSaveRenderer(image)
+            renderer.apply_patches(window.image_patches.get(file_path, []))
+            viewer_state = states[file_path]["viewer_state"]
+            if window.webtoon_mode:
+                context = type("PageContext", (), {"image_files": window.image_files, "image_states": states})()
+                renderer.add_state_to_image(viewer_state, index, context)
+            else:
+                renderer.add_state_to_image(viewer_state)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            renderer.save_image(path)
+            if not os.path.isfile(path):
+                job.fail("PreviewNotWritten", f"no preview was written to {path}")
+            height, width = image.shape[:2]
+            job.result.update(page=index, path=path, width=int(width), height=int(height))
+
+        return self._jobs.run_now("render_page_preview", apply)
 
     def translation_problems(self) -> list[tuple[str, str]]:
         """Why a translation run would not start, mirroring the application's checks."""
@@ -460,30 +493,6 @@ class AppActions:
                 "the current project has unsaved changes; save it first or pass discard_unsaved=True",
             )
         return None
-
-
-def _count_pages(path: str) -> int:
-    """Pages in an exported PDF or comic archive."""
-    extension = os.path.splitext(path)[1].lower()
-    if extension == ".pdf":
-        import pypdfium2
-
-        document = pypdfium2.PdfDocument(path)
-        try:
-            return len(document)
-        finally:
-            document.close()
-    if extension == ".cb7":
-        import py7zr
-
-        with py7zr.SevenZipFile(path, "r") as archive:
-            names = archive.getnames()
-    else:
-        import zipfile
-
-        with zipfile.ZipFile(path) as archive:
-            names = archive.namelist()
-    return sum(1 for name in names if name.lower().endswith(IMAGE_EXTENSIONS))
 
 
 def _jsonable_reasons(reasons: Any) -> list:

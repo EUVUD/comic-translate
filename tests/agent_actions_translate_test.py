@@ -51,6 +51,15 @@ result["skip"] = finished(actions.skip_pages([1]))
 result["skip_state"] = session.snapshot()["pages"][1]["skip"]
 result["out_of_range"] = finished(actions.translate_pages([5]))
 result["stages"] = sorted({stage for stage, _ in profile.calls})
+
+from agent.app_api import observations
+result["detail"] = observations.page_detail(session.window, 0)
+preview_path = environment.run_dir / "previews" / "page-1.png"
+result["preview"] = finished(actions.render_page_preview(1, str(preview_path)))
+preview, original = imk.read_image(str(preview_path)), imk.read_image(second)
+result["preview_shape_matches"] = preview.shape == original.shape
+result["preview_differs"] = bool((preview != original).any())
+result["bad_preview"] = finished(actions.render_page_preview(9, str(preview_path)))
 """
 
 
@@ -104,6 +113,21 @@ class TranslationActionTests(unittest.TestCase):
     def test_pages_can_be_skipped(self):
         self.assertEqual(self.result["skip"]["result"], {"pages": [1], "skip": True})
         self.assertTrue(self.result["skip_state"])
+
+    def test_page_detail_shows_source_text_and_translation(self):
+        [block] = self.result["detail"]["block_details"]
+
+        self.assertEqual((block["text"], block["translation"]), ("こんにちは", "Hello"))
+        self.assertEqual(block["text_class"], "text_bubble")
+
+    def test_preview_renders_the_translated_page(self):
+        job = self.result["preview"]
+
+        self.assertEqual(job["status"], "succeeded", job)
+        self.assertEqual((job["result"]["page"], job["result"]["width"], job["result"]["height"]), (1, 72, 96))
+        self.assertTrue(self.result["preview_shape_matches"])
+        self.assertTrue(self.result["preview_differs"], "the preview should show the cleaned, translated page")
+        self.assertEqual(self.result["bad_preview"]["errors"][0]["type"], "ValueError")
 
     def test_page_indices_are_validated(self):
         job = self.result["out_of_range"]
