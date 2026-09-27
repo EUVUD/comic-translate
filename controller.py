@@ -56,6 +56,7 @@ class ComicTranslate(ComicTranslateUI):
     blk_rendered = QtCore.Signal(str, int, object, str)
     render_state_ready = QtCore.Signal(str)
     download_event = QtCore.Signal(str, str)  # status, name
+    task_failed = QtCore.Signal(str, str)  # exception type name, message
 
     def __init__(self, parent=None):
         super(ComicTranslate, self).__init__(parent)
@@ -517,7 +518,10 @@ class ComicTranslate(ComicTranslateUI):
 
     def default_error_handler(self, error_tuple: Tuple):
         exctype, value, traceback_str = error_tuple
-        
+        # Observers such as automated sessions see every failure, including
+        # ones reported to the user only as a toast.
+        self.task_failed.emit(getattr(exctype, "__name__", str(exctype)), str(value))
+
         # Handle specific exceptions
         if exctype is InsufficientCreditsException:
             Messages.show_insufficient_credits_error(self, details=str(value))
