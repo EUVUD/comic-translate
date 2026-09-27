@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 from typing import Any, Sequence
 
+from . import observations
 from .jobs import Job
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".avif")
@@ -232,6 +233,148 @@ class AppActions:
 
         return self._jobs.run_now("set_webtoon_mode", apply)
 
+    # Translation
+
+    def translate_pages(self, pages: Sequence[int] | None = None) -> Job:
+        """Run the full pipeline (detect, OCR, translate, inpaint, render) on pages.
+
+        ``pages`` are 0-based indices; all pages by default. Pages that fail are
+        skipped and reported in the result, not treated as a failed job.
+        """
+        paths = self._resolve_pages("translate_pages", pages)
+        if isinstance(paths, Job):
+            return paths
+        return self._start_batch("translate_pages", lambda: self._window._run_batch_for_paths(paths), paths)
+
+    def retry_skipped(self) -> Job:
+        """Run the pipeline again on the pages the last run skipped."""
+        report = self._window.batch_report_ctrl._latest_batch_report
+        skipped = [entry for entry in (report or {}).get("skipped_entries", [])
+                   if entry.get("image_path") in self._window.image_files]
+        if not skipped:
+            return self._jobs.rejected("retry_skipped", "NothingToRetry", "the last run skipped no pages")
+        paths = [entry["image_path"] for entry in skipped]
+        return self._start_batch("retry_skipped", self._window.retry_skipped_batch_images, paths)
+
+    def skip_pages(self, pages: Sequence[int], skip: bool = True) -> Job:
+        """Mark pages to be left out of (or back in) translation runs. Undoable."""
+        paths = self._resolve_pages("skip_pages", pages, require_selection=True)
+        if isinstance(paths, Job):
+            return paths
+        window = self._window
+
+        def apply(job: Job) -> None:
+            from app.ui.commands.image import ToggleSkipImagesCommand
+
+            # Addressed by path: page names repeat across archives ("1.png").
+            changed = [path for path in paths if window.image_states.get(path, {}).get("skip", False) != skip]
+            if changed:
+                command = ToggleSkipImagesCommand(window, changed, skip)
+                stack = window.undo_group.activeStack()
+                if stack is not None:
+                    stack.push(command)
+                else:
+                    command.redo()
+                    window.mark_project_dirty()
+            wrong = [path for path in paths if window.image_states.get(path, {}).get("skip", False) != skip]
+            if wrong:
+                job.fail("SkipNotApplied", f"pages not updated: {[os.path.basename(p) for p in wrong]}")
+            job.result.update(pages=[window.image_files.index(p) for p in paths], skip=skip)
+
+        return self._jobs.run_now("skip_pages", apply)
+
+    def translation_problems(self) -> list[tuple[str, str]]:
+        """Why a translation run would not start, mirroring the application's checks."""
+        from modules.utils.pipeline_config import ACCOUNT_BACKED_OCR_TOOLS
+
+        window = self._window
+        page = window.settings_page
+        problems = []
+        if window._batch_active:
+            problems.append(("BatchAlreadyRunning", "a translation run is already in progress"))
+        translator = self._tool("translator")
+        if not translator:
+            problems.append(("NoTranslator", "no translator is selected"))
+        elif translator == "Custom":
+            credentials = page.get_credentials(page.ui.tr("Custom"))
+            if not all(credentials.get(field) for field in CUSTOM_CREDENTIAL_FIELDS):
+                problems.append(("CustomNotConfigured", "the Custom translator needs an API key, URL and model"))
+        elif not page.is_logged_in():
+            problems.append(("SignInRequired", f"the {translator} translator needs a signed-in account"))
+        ocr = self._tool("ocr")
+        if not ocr:
+            problems.append(("NoOcr", "no text recognition engine is selected"))
+        elif ocr in ACCOUNT_BACKED_OCR_TOOLS and not page.is_logged_in():
+            problems.append(("SignInRequired", f"the {ocr} OCR engine needs a signed-in account"))
+        if not window.render_settings().font_family:
+            problems.append(("NoFontSelected", "choose a font with set_render_options first"))
+        return problems
+
+    def _start_batch(self, kind: str, begin: Any, paths: list[str]) -> Job:
+        problems = self.translation_problems()
+        if problems:
+            job = self._jobs.rejected(kind, *problems[0])
+            for problem in problems[1:]:
+                job.fail(*problem)
+            return job
+        window = self._window
+
+        def start() -> None:
+            begin()
+            if not window._batch_active:
+                raise RuntimeError("the application did not start the translation run")
+
+        return self._jobs.start(kind, start, lambda job: self._finish_batch(job, paths))
+
+    def _finish_batch(self, job: Job, paths: list[str]) -> None:
+        report = self._window.batch_report_ctrl._latest_batch_report or {}
+        skipped = [
+            {
+                "page": self._window.image_files.index(entry["image_path"])
+                if entry.get("image_path") in self._window.image_files else None,
+                "name": entry.get("image_name"),
+                "reasons": _jsonable_reasons(entry.get("reasons", [])),
+            }
+            for entry in report.get("skipped_entries", [])
+        ]
+        cancelled = bool(report.get("was_cancelled", False))
+        # The application's report counts pages without detected text as
+        # completed and leaves user-skipped pages out, so check page state too.
+        states = [page for page in observations.snapshot(self._window)["pages"] if page["path"] in paths]
+        skipped_pages = {entry["page"] for entry in skipped}
+        no_text = [
+            page["index"] for page in states
+            if not page["skip"] and page["index"] not in skipped_pages and page["blocks"] == 0
+        ]
+        untranslated = [page["index"] for page in states if page["translated_blocks"] < page["blocks"]]
+        job.result.update(
+            pages=report.get("total_images", 0),
+            completed=report.get("completed_count", 0),
+            skipped=skipped,
+            no_text=no_text,
+            untranslated=untranslated,
+            user_skipped=[page["index"] for page in states if page["skip"]],
+            cancelled=cancelled,
+            complete=not skipped and not cancelled and not untranslated,
+        )
+
+    def _resolve_pages(
+        self, kind: str, pages: Sequence[int] | None, require_selection: bool = False
+    ) -> list[str] | Job:
+        files = list(self._window.image_files)
+        if not files:
+            return self._jobs.rejected(kind, "NoPagesLoaded", "no pages are loaded")
+        if pages is None:
+            if require_selection:
+                return self._jobs.rejected(kind, "ValueError", "choose at least one page")
+            return files
+        invalid = [index for index in pages if not isinstance(index, int) or not 0 <= index < len(files)]
+        if invalid or not pages:
+            return self._jobs.rejected(
+                kind, "ValueError", f"page indices must be between 0 and {len(files) - 1}; got {list(pages)}"
+            )
+        return [files[index] for index in dict.fromkeys(pages)]
+
     def _tool(self, kind: str) -> str:
         page = self._window.settings_page
         label = page.get_tool_selection(kind)
@@ -250,6 +393,11 @@ class AppActions:
                 "the current project has unsaved changes; save it first or pass discard_unsaved=True",
             )
         return None
+
+
+def _jsonable_reasons(reasons: Any) -> list:
+    return [reason if isinstance(reason, (str, int, float, bool, type(None), dict, list)) else str(reason)
+            for reason in reasons]
 
 
 def _select(combo: Any, text: str) -> None:

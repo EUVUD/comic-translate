@@ -101,6 +101,33 @@ class AppSession:
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
         return future.result()
 
+    def wait_until_idle(self, timeout: float = 120) -> None:
+        """Wait until no application work is queued or running.
+
+        Completion callbacks can queue follow-up work, such as the autosave
+        after a translation run, so an action's job may finish first.
+        """
+        runner = self.window.task_runner_ctrl
+        threadpool = self.window.threadpool
+
+        def idle() -> bool:
+            return not runner.operation_queue and threadpool.activeThreadCount() == 0
+
+        deadline = time.monotonic() + timeout
+        while not self.wait(self.submit(idle), timeout):
+            if time.monotonic() > deadline:
+                raise TimeoutError("application work did not finish in time")
+            self._pause(0.05)
+
+    def _pause(self, seconds: float) -> None:
+        if not self.dispatcher.on_gui_thread():
+            time.sleep(seconds)
+            return
+        from PySide6.QtCore import QEventLoop
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, int(seconds * 1000))
+
     def snapshot(self) -> dict:
         """Observable session state; see ``observations.snapshot``."""
         events = self.policy.events if self.policy is not None else ()
@@ -125,6 +152,8 @@ class AppSession:
         self._closed = True
         if not self._owns_window:
             return
+        # Closing releases the project store; background saves must finish first.
+        self.wait_until_idle()
         if self.environment is not None:
             self.write_snapshot()
         # A booted session's unsaved work is disposable; skip the save prompt.

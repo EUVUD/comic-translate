@@ -55,6 +55,7 @@ def _window(*, webtoon_mode: bool = False) -> SimpleNamespace:
         },
         # Live state of the displayed page (index 0), not yet saved back.
         blk_list=[_Block("hello"), _Block("")],
+        image_patches={"/sandbox/inputs/02.png": [{"bbox": [0, 0, 4, 4]}, {"bbox": [4, 4, 8, 8]}]},
         image_viewer=SimpleNamespace(text_items=[object()]),
         batch_report_ctrl=SimpleNamespace(_latest_batch_report={
             "finished_at": datetime(2026, 9, 27, 12, 30),
@@ -87,6 +88,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(page["blocks"], 3)
         self.assertEqual(page["translated_blocks"], 2)
         self.assertEqual(page["text_items"], 2)
+        self.assertEqual(page["inpainted_patches"], 2)
         self.assertTrue(page["skip"])
         self.assertEqual((page["source_lang"], page["target_lang"]), ("Japanese", "English"))
 

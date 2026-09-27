@@ -63,6 +63,8 @@ def _page(window: Any, index: int, path: str) -> dict:
         "blocks": len(blocks),
         "translated_blocks": sum(1 for block in blocks if (getattr(block, "translation", "") or "").strip()),
         "text_items": text_items,
+        # Cleaned regions painted over the original text.
+        "inpainted_patches": len(window.image_patches.get(path, [])),
     }
 
 

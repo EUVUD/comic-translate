@@ -96,6 +96,31 @@ class AttachedSessionTests(unittest.TestCase):
         self.assertTrue(window.isVisible())
         window.close()
 
+    def test_wait_until_idle_waits_for_queued_and_running_work(self):
+        import time
+        from collections import deque
+        from types import SimpleNamespace
+        from PySide6 import QtCore
+
+        window = QtWidgets.QMainWindow()
+        window.threadpool = QtCore.QThreadPool()
+        window.task_runner_ctrl = SimpleNamespace(operation_queue=deque(["queued save"]))
+        session = AppSession.attach(window)
+
+        class _Work(QtCore.QRunnable):
+            def run(self):
+                time.sleep(0.3)
+
+        window.threadpool.start(_Work())
+        QtCore.QTimer.singleShot(150, window.task_runner_ctrl.operation_queue.clear)
+        started = time.monotonic()
+
+        session.wait_until_idle(timeout=5)
+
+        self.assertGreaterEqual(time.monotonic() - started, 0.25)
+        self.assertEqual(window.threadpool.activeThreadCount(), 0)
+        self.assertFalse(window.task_runner_ctrl.operation_queue)
+
     def test_wait_on_gui_thread_processes_queued_work(self):
         session = AppSession.attach(QtWidgets.QMainWindow())
         futures = []
