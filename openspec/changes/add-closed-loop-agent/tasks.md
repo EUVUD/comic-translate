@@ -2,7 +2,7 @@
 
 - [x] 1.1 Create branch `feature/closed-loop-agent` from `origin/develop`.
 - [x] 1.2 Write the OpenSpec proposal, design, tasks, and capability specs for `app-automation-api`, `agent-runtime`, `agent-mcp-server`, and `agent-evaluation`.
-- [ ] 1.3 Validate the change with `openspec validate add-closed-loop-agent --strict` on a machine that has the OpenSpec CLI.
+- [x] 1.3 Validate the change with `openspec validate add-closed-loop-agent --strict` on a machine that has the OpenSpec CLI.
 
 ## 2. Application Session and Interaction Policy
 
