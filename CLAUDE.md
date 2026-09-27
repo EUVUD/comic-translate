@@ -28,7 +28,7 @@ python -m unittest tests.story_memory_schema_test     # a single test module
 
 ## Workflow
 
-- Follow `AGENTS.md`: work incrementally, write a short step plan before adding functions, and explain any edit over 30 lines, then wait for the user's go-ahead.
+- Follow `AGENTS.md`: work incrementally, and write a short step plan before adding functions.
 - Features are specified as OpenSpec changes in `openspec/changes/<change>/` (proposal, design, tasks, specs). Each is developed on a `feature/<change>` branch cut from `develop` and merged back by PR. Validate with `openspec validate <change> --strict`, and tick `tasks.md` items as they land. The active change is `add-closed-loop-agent`.
 - Commits use Conventional Commits with scopes, e.g. `feat(memory): …` or `docs(openspec): …`.
 

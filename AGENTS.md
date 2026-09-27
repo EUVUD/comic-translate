@@ -30,7 +30,7 @@ Recent commits use short imperative summaries, for example `Improve block mask b
 
 ## Agent-Specific Instructions
 
-Work incrementally. Before adding functions, write a small step-by-step plan and implement one coherent step at a time rather than adding many functions in one change. If a proposed edit changes more than 30 lines, stop before editing and explain what the change does and why it is necessary. Continue only after the user says to keep moving.
+Work incrementally. Before adding functions, write a small step-by-step plan and implement one coherent step at a time rather than adding many functions in one change.
 
 ## Security & Configuration Tips
 
