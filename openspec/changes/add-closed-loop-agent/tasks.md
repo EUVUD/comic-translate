@@ -6,20 +6,21 @@
 
 ## 2. Application Session and Interaction Policy
 
-- [ ] 2.1 Add `AppSession`, which boots `ComicTranslate` offscreen or attaches to an existing instance, with a dispatcher that runs calls on the GUI thread and returns futures.
-- [ ] 2.2 Add the `InteractionPolicy` seam with a default GUI policy that keeps current dialogs, and route every modal call site through it.
-- [ ] 2.3 Add an agent policy that records prompts as structured events, applies pre-authorized answers, and never picks a destructive default.
-- [ ] 2.4 Add a test that fails when a modal `.exec()` call site bypasses the interaction policy.
-- [ ] 2.5 Add hermetic environment setup:
+- [x] 2.1 Add `AppSession`, which boots `ComicTranslate` offscreen or attaches to an existing instance, with a dispatcher that runs calls on the GUI thread and returns futures.
+- [x] 2.2 Add the `InteractionPolicy` seam with a default GUI policy that keeps current dialogs, and route every modal call site through it.
+- [x] 2.3 Add an agent policy that records prompts as structured events, applies pre-authorized answers, and never picks a destructive default.
+- [x] 2.4 Add a test that fails when a modal `.exec()` call site bypasses the interaction policy.
+- [x] 2.5 Add hermetic environment setup:
   - isolated settings;
+  - isolated application data (autosaves, the recovery project, fonts), with a shared model cache;
   - the null keyring;
   - sandboxed input, output, and autosave roots;
   - offscreen Qt;
   - update checks and credit refreshes disabled;
   - engine profile selection.
-- [ ] 2.6 Add state snapshots, written after every mutating action and when the session exits.
-- [ ] 2.7 Add an engine-override registry that the detection, OCR, and translation factories check first. It stays empty unless an evaluation profile installs overrides.
-- [ ] 2.8 Add deterministic fixture engines keyed by page fingerprint, with scripted fault injection.
+- [x] 2.6 Add state snapshots, written when the session exits and on request.
+- [x] 2.7 Add an engine-override registry that the detection, OCR, translation, and inpainting engine builders check first. It stays empty unless an evaluation profile installs overrides.
+- [x] 2.8 Add deterministic fixture engines keyed by page fingerprint, with scripted fault injection.
 
 ## 3. Actions, Observations, and Jobs
 
@@ -36,6 +37,7 @@
 - [ ] 3.7 Add postcondition checks and structured errors to every action.
 - [ ] 3.8 Add T0 contract tests, using fixture engines, for every action and observation.
 - [ ] 3.9 Add import tests proving that normal application startup imports neither `agent`, `mcp`, nor `inspect_ai`.
+- [ ] 3.10 Write a state snapshot after every mutating action.
 
 ## 4. Tool Registry and MCP Server
 
@@ -54,6 +56,7 @@
 - [ ] 5.5 Add `.gitignore` entries for run outputs, logs, caches, and downloaded datasets.
 - [ ] 5.6 Run the Inspect AI spike, and record the results against the exit criteria in `design.md`.
 - [ ] 5.7 Add `requirements-eval.txt`, Inspect tasks and scorers, and a baseline report using the generic `react()` agent. If the spike fails, use the fallback runner instead.
+- [ ] 5.8 Install the fixture profile automatically when a hermetic session's engine profile is `fixtures`.
 
 ## 6. Closed-Loop Agent Runtime
 

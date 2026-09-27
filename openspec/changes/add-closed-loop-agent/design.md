@@ -20,7 +20,7 @@ Two companions complete the design: an MCP interface so external AI clients can 
 
 Constraints:
 - GUI work must stay on the GUI thread (`AGENTS.md`).
-- Thirteen modal `.exec()` call sites would block an unattended session. Examples are `Messages.show_error_with_copy` (used by `default_error_handler`), `Messages.show_insufficient_credits_error`, `_confirm_start_new_project` in `app/ui/main_window/builders/nav.py`, the recovery and export-partition prompts in `app/controllers/projects.py`, and the unsaved-changes prompt in `controller.py`.
+- Thirteen modal `.exec()` call sites would block an unattended session. Examples are `Messages.show_error_with_copy` (used by `default_error_handler`), `Messages.show_insufficient_credits_error`, `_confirm_start_new_project` in `app/ui/main_window/builders/nav.py`, the recovery and export-partition prompts in `app/controllers/projects.py`, and the unsaved-changes prompt in `controller.py`. Another 17 static message boxes (`QMessageBox.warning` and similar) and 13 file dialogs can also open from application code.
 - Account-backed translators and OCR spend user credits.
 - `.ctpr` persistence is user-data sensitive.
 - The base installation should not grow for users who never use the agent.
@@ -133,13 +133,13 @@ Alternatives considered:
 
 ### 2. Keep GUI work on the GUI thread and expose long operations as jobs
 
-The agent loop and LLM calls run off the GUI thread. An `AppSession` dispatcher moves every action onto the GUI thread with a queued invocation. This is the `QTimer.singleShot(0, main, ...)` pattern that `TaskRunnerController` already relies on, paired with a result future that returns the outcome to the caller's thread.
+The agent loop and LLM calls run off the GUI thread. An `AppSession` dispatcher moves every action onto the GUI thread through a queued signal connection, paired with a result future that returns the outcome to the caller's thread. A queued signal behaves the same on every supported PySide6 version. Calls made on the GUI thread run immediately, so a GUI-thread caller never waits on itself.
 
 Long-running work reuses `main.run_threaded`. Its existing completion signals and callbacks resolve job handles, which expose status, progress, and results through `get_job` and `wait_job`. Jobs work the same for in-process and MCP clients and do not depend on any protocol-specific support for long-running tasks.
 
 ### 3. Replace blocking prompts with an interaction policy in agent mode
 
-An `InteractionPolicy` is installed on the main window. Modal call sites ask the policy before opening a dialog. These sites include error dialogs, the insufficient-credits prompt, the new-project confirmation, the unsaved-changes, recovery, and export-partition prompts, and the settings dialogs.
+Every modal call site runs its dialog through `app.ui.interaction.run_modal(dialog, prompt_id)`, which consults a process-wide `InteractionPolicy`. A stable prompt ID lets a policy recognize a prompt in any interface language. These sites include error dialogs, the insufficient-credits prompt, the new-project confirmation, the unsaved-changes, recovery, and export-partition prompts, and the settings dialogs. A test fails if a new `.exec()` call bypasses `run_modal`.
 
 - **GUI policy (the default):** shows the existing dialogs, so interactive behavior is unchanged.
 - **Agent policy:** records each prompt as a structured event and answers with a pre-authorized choice or a safe default, which is never destructive. Errors reach the agent as tool errors instead of blocking the event loop.
@@ -148,7 +148,8 @@ Non-blocking toasts (`MMessage`) are captured as events but need no answer. Herm
 
 Alternatives considered:
 
-- **Auto-dismissing dialogs with a watchdog:** rejected. It is racy, and the agent never learns which choice was made.
+- **Auto-dismissing every dialog with a watchdog:** rejected as the primary mechanism. It cannot identify prompts reliably or apply pre-authorized answers. It remains the fallback for dialogs that bypass `run_modal`, such as static message boxes and file pickers: in agent mode, a GUI-thread timer checks for an active modal dialog every 50 ms, records it as an event, and rejects it.
+- **An application-wide event filter as that fallback:** rejected. PySide calls a Python event filter for every event on every object, including objects being destroyed, and that crashed the test suite.
 - **Patching `QMessageBox.exec` globally:** rejected. It is fragile and invisible in code review.
 
 ### 4. One tool registry, one policy gate, many clients
@@ -216,8 +217,10 @@ A later option is to attach to a running GUI instance through the existing singl
 
 Each scenario runs in a fresh process configured by `agent/app_api/hermetic.py`:
 
-- **Settings:** `XDG_CONFIG_HOME` points to a temporary directory, so `QSettings("ComicLabs", "ComicTranslate")` never touches the user's settings on Linux.
-- **Account:** `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`, so no account token is visible (`app/account/auth/token_storage.py`) and account-backed engines cannot spend credits.
+- **Settings:** `XDG_CONFIG_HOME` points to a temporary directory for child processes. Qt caches the settings path on first use, so inside a process the session also calls `QSettings.setPath`. Either way, `QSettings("ComicLabs", "ComicTranslate")` never touches the user's settings on Linux.
+- **Account:** the keyring is replaced by one that stores nothing, via `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring` and `keyring.set_keyring`. `get_token` falls back to QSettings when the keyring is empty, so hiding a signed-in user's token needs the settings redirect as well. Then no token is visible (`app/account/auth/token_storage.py`) and account-backed engines cannot spend credits.
+- **Application data:** `XDG_DATA_HOME` points into the sandbox, so autosaves, the crash-recovery project, and imported fonts stay isolated. The user's model cache is linked in through a symlink, so it stays shared.
+- **Network:** `CT_OFFLINE=1` skips the automatic update check. The startup credit refresh checks for a local sign-in before probing the network, so signed-out sessions make no request.
 - **Files:** inputs are copied into a temporary sandbox, outputs and autosave are restricted to it, and the model cache is shared so models are not downloaded again for each scenario.
 - **Display:** `QT_QPA_PLATFORM=offscreen`.
 - **Engines:** an engine profile selects fixture engines or real engines. Network access is off unless the tier allows it.
@@ -229,7 +232,9 @@ Evaluation tiers T0–T3 use fixture engines: a detector, OCR engine, translator
 
 Scenarios script faults per stage and per page: HTTP 500, timeout, empty detection, credits exhausted. This includes transient faults that succeed on retry.
 
-`TranslationFactory` already exposes class-level engine maps, but the OCR and detection factories build their maps inside methods. This change therefore adds an explicit engine-override registry that all three factories check before their built-in maps. The registry is empty in normal runs and is populated only by an evaluation engine profile.
+`TranslationFactory` already exposes class-level engine maps, but the OCR and detection factories build their maps inside methods. This change therefore adds an explicit engine-override registry, `modules/utils/engine_overrides.py`, that the three factories and the two places that build inpainters check before their built-in maps. The registry is empty in normal runs and is populated only by an evaluation engine profile.
+
+The fixture translator declares itself LLM-style, so the pipeline passes it the page image, which lets translation faults be scripted per page. Inpainting faults apply when the pipeline inpaints the whole page; patches have their own fingerprints.
 
 Tier T4 uses the real engines.
 
