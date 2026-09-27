@@ -12,6 +12,7 @@ from .llm.deepseek import DeepseekTranslation
 from .llm.custom import CustomTranslation
 from .user import UserTranslator
 from app.account.auth.token_storage import get_token
+from modules.utils import engine_overrides
 
 
 class TranslationFactory:
@@ -51,6 +52,10 @@ class TranslationFactory:
         Returns:
             Appropriate translation engine instance
         """
+        override = engine_overrides.create("translation", settings, source_lang, target_lang, translator_key)
+        if override is not None:
+            return override
+
         # Create a cache key based on translator and language pair
         cache_key = cls.configuration_fingerprint(
             translator_key,

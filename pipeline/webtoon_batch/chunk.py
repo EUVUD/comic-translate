@@ -11,6 +11,7 @@ from PySide6.QtCore import QCoreApplication
 from app.ui.messages import Messages
 from modules.detection.processor import TextBlockDetector
 from modules.translation.processor import Translator
+from modules.utils import engine_overrides
 from modules.utils.device import resolve_device
 from modules.utils.exceptions import InsufficientCreditsException
 from modules.utils.image_utils import generate_mask
@@ -76,6 +77,11 @@ class ChunkMixin:
             self.inpainting.inpainter_cache is None
             or self.inpainting.cached_inpainter_key != inpainter_key
         ):
+            override = engine_overrides.create("inpainting", settings_page, inpainter_key)
+            if override is not None:
+                self.inpainting.inpainter_cache = override
+                self.inpainting.cached_inpainter_key = inpainter_key
+                return
             InpainterClass = inpaint_map[inpainter_key]
             backend = get_inpainter_backend(inpainter_key)
             device = resolve_device(settings_page.is_gpu_enabled(), backend=backend)

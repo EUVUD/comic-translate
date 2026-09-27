@@ -1,6 +1,7 @@
 import json
 import hashlib
 
+from modules.utils import engine_overrides
 from modules.utils.device import resolve_device, torch_available
 from app.account.auth.token_storage import get_token
 from .base import OCREngine
@@ -45,6 +46,10 @@ class OCRFactory:
         Returns:
             Appropriate OCR engine instance
         """
+        override = engine_overrides.create("ocr", settings, source_lang_english, ocr_model)
+        if override is not None:
+            return override
+
         effective_backend = cls._resolve_backend(backend)
 
         # build cache key

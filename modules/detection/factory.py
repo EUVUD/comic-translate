@@ -1,5 +1,6 @@
 from .base import DetectionEngine
 from .rtdetr_v2_onnx import RTDetrV2ONNXDetection
+from ..utils import engine_overrides
 from ..utils.device import resolve_device, torch_available
 from .backend import DEFAULT_DETECTION_BACKEND, resolve_detection_backend
 
@@ -28,6 +29,10 @@ class DetectionEngineFactory:
         Returns:
             Appropriate detection engine instance
         """
+        override = engine_overrides.create("detection", settings, model_name)
+        if override is not None:
+            return override
+
         effective_backend = cls._resolve_backend(backend)
 
         # build cache key

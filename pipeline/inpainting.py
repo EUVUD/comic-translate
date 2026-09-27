@@ -7,6 +7,7 @@ import imkit as imk
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QBrush
 
+from modules.utils import engine_overrides
 from modules.utils.device import resolve_device
 from modules.utils.image_utils import build_block_mask_data, build_bubble_clip_mask, clip_mask_to_bubble, clip_mask_components_to_bubble
 from modules.utils.pipeline_config import inpaint_map, get_config, get_inpainter_backend
@@ -47,6 +48,11 @@ class InpaintingHandler:
         settings_page = self.main_page.settings_page
         inpainter_key = settings_page.get_tool_selection('inpainter')
         if self.inpainter_cache is None or self.cached_inpainter_key != inpainter_key:
+            override = engine_overrides.create("inpainting", settings_page, inpainter_key)
+            if override is not None:
+                self.inpainter_cache = override
+                self.cached_inpainter_key = inpainter_key
+                return self.inpainter_cache
             backend = get_inpainter_backend(inpainter_key)
             device = resolve_device(settings_page.is_gpu_enabled(), backend)
             InpainterClass = inpaint_map[inpainter_key]
