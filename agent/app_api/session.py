@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import time
 from concurrent.futures import Future
+from pathlib import Path
 from typing import Any, Callable
 
+from . import observations
 from .dispatch import GuiDispatcher
 from .hermetic import HermeticEnvironment
 from .interaction import AgentInteractionPolicy
@@ -94,13 +97,32 @@ class AppSession:
             QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 50)
         return future.result()
 
+    def snapshot(self) -> dict:
+        """Observable session state; see ``observations.snapshot``."""
+        events = self.policy.events if self.policy is not None else ()
+        return self.wait(self.submit(observations.snapshot, self.window, events))
+
+    def write_snapshot(self, path: str | os.PathLike | None = None) -> Path:
+        """Write a snapshot, by default to the hermetic run directory."""
+        if path is None:
+            if self.environment is None:
+                raise ValueError("this session has no run directory; pass a path")
+            path = self.environment.run_dir / "state.json"
+        return observations.write_snapshot(self.snapshot(), path)
+
     def close(self) -> None:
-        """Shut down a booted window. An attached window is left open."""
+        """Shut down a booted window. An attached window is left open.
+
+        A hermetic session writes a final snapshot first, so scoring can read
+        the end state after the process exits.
+        """
         if self._closed:
             return
         self._closed = True
         if not self._owns_window:
             return
+        if self.environment is not None:
+            self.write_snapshot()
         # A booted session's unsaved work is disposable; skip the save prompt.
         self.window._skip_close_prompt = True
         self.window.close()

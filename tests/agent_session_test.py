@@ -45,6 +45,8 @@ BOOT_PROBE = textwrap.dedent(
             "on_gui_thread": session.dispatcher.on_gui_thread(),
         })
         observed.update(future.result(timeout=30))
+        # Snapshots taken from the agent's thread run on the GUI thread.
+        observed["snapshot_settings"] = sorted(session.snapshot()["settings"])
 
     worker = threading.Thread(target=agent_thread)
     worker.start()
@@ -68,6 +70,12 @@ BOOT_PROBE = textwrap.dedent(
     session.close()
     observed["visible_after_close"] = window.isVisible()
     observed["policy_after_close"] = type(interaction.get_interaction_policy()).__name__
+    final = json.loads((environment.run_dir / "state.json").read_text(encoding="utf-8"))
+    observed["final_snapshot"] = {
+        "schema": final["schema"],
+        "pages": final["pages"],
+        "prompts": [prompt["prompt_id"] for prompt in final["prompts"]],
+    }
     print(json.dumps(observed))
     """
 )
@@ -127,6 +135,12 @@ class BootedSessionTests(unittest.TestCase):
         self.assertEqual(observed["prompt"], "messages.error_details")
         self.assertFalse(observed["visible_after_close"])
         self.assertEqual(observed["policy_after_close"], "GuiInteractionPolicy")
+        self.assertEqual(observed["snapshot_settings"], ["detector", "inpainter", "ocr", "translator", "use_gpu"])
+        self.assertEqual(observed["final_snapshot"], {
+            "schema": 1,
+            "pages": [],
+            "prompts": ["messages.error_details"],
+        })
 
 
 if __name__ == "__main__":
