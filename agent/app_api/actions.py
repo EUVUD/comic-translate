@@ -30,6 +30,7 @@ TOOL_COMBOS = {
     "detector": "detector_combo",
 }
 CUSTOM_CREDENTIAL_FIELDS = ("api_key", "api_url", "model")
+EXPORT_EXTENSIONS = (".pdf", ".cbz", ".cb7", ".zip")
 
 
 class AppActions:
@@ -283,6 +284,72 @@ class AppActions:
 
         return self._jobs.run_now("skip_pages", apply)
 
+    # Save and export
+
+    def save_project(self, path: str, *, overwrite: bool = False) -> Job:
+        """Save the session as a ``.ctpr`` project and keep working in it."""
+        path = os.path.normpath(os.path.abspath(path))
+        window = self._window
+        if not path.lower().endswith(".ctpr"):
+            return self._jobs.rejected("save_project", "ValueError", f"project files end in .ctpr: {path}")
+        if not window.image_files:
+            return self._jobs.rejected("save_project", "NoPagesLoaded", "no pages are loaded")
+        if not os.path.isdir(os.path.dirname(path)):
+            return self._jobs.rejected("save_project", "FileNotFoundError", f"no such folder: {os.path.dirname(path)}")
+        if os.path.exists(path) and path != window.project_file and not overwrite:
+            return self._jobs.rejected(
+                "save_project", "OutputExists", f"{path} already exists; pass overwrite=True to replace it"
+            )
+
+        def finish(job: Job) -> None:
+            if not os.path.isfile(path) or window.project_file != path:
+                job.fail("ProjectNotSaved", f"the project was not saved to {path}")
+            job.result.update(
+                path=path,
+                bytes=os.path.getsize(path) if os.path.isfile(path) else 0,
+                pages=len(window.image_files),
+                unsaved_changes=bool(window.has_unsaved_changes()),
+            )
+
+        return self._jobs.start("save_project", lambda: window.project_ctrl.run_save_proj(path), finish)
+
+    def export(self, path: str, *, overwrite: bool = False) -> Job:
+        """Render every page with its translation into a PDF or comic archive.
+
+        Pages from different sources, such as two archives, become one file
+        each, named after their source, in the folder of ``path``.
+        """
+        path = os.path.normpath(os.path.abspath(path))
+        extension = os.path.splitext(path)[1].lower()
+        if extension not in EXPORT_EXTENSIONS:
+            return self._jobs.rejected("export", "ValueError", f"export to one of {list(EXPORT_EXTENSIONS)}: {path}")
+        window = self._window
+        if not window.image_files:
+            return self._jobs.rejected("export", "NoPagesLoaded", "no pages are loaded")
+        controller = window.project_ctrl
+        names = {row.file_path: row.group_name for row in controller._build_export_rows()}
+        plan = controller._build_export_plan(path, names)
+        existing = {group["output_path"]: os.path.getmtime(group["output_path"])
+                    for group in plan if os.path.exists(group["output_path"])}
+        if existing and not overwrite:
+            return self._jobs.rejected(
+                "export", "OutputExists", f"{sorted(existing)} already exist; pass overwrite=True to replace them"
+            )
+
+        def finish(job: Job) -> None:
+            outputs = []
+            for group in plan:
+                output = group["output_path"]
+                expected = len(group["page_indices"])
+                written = os.path.isfile(output) and os.path.getmtime(output) != existing.get(output)
+                found = _count_pages(output) if written else 0
+                if found != expected:
+                    job.fail("ExportIncomplete", f"{output} has {found} of {expected} pages")
+                outputs.append({"path": output, "pages": found, "expected_pages": expected})
+            job.result["outputs"] = outputs
+
+        return self._jobs.start("export", lambda: controller._run_export_plan(plan), finish)
+
     def translation_problems(self) -> list[tuple[str, str]]:
         """Why a translation run would not start, mirroring the application's checks."""
         from modules.utils.pipeline_config import ACCOUNT_BACKED_OCR_TOOLS
@@ -393,6 +460,30 @@ class AppActions:
                 "the current project has unsaved changes; save it first or pass discard_unsaved=True",
             )
         return None
+
+
+def _count_pages(path: str) -> int:
+    """Pages in an exported PDF or comic archive."""
+    extension = os.path.splitext(path)[1].lower()
+    if extension == ".pdf":
+        import pypdfium2
+
+        document = pypdfium2.PdfDocument(path)
+        try:
+            return len(document)
+        finally:
+            document.close()
+    if extension == ".cb7":
+        import py7zr
+
+        with py7zr.SevenZipFile(path, "r") as archive:
+            names = archive.getnames()
+    else:
+        import zipfile
+
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    return sum(1 for name in names if name.lower().endswith(IMAGE_EXTENSIONS))
 
 
 def _jsonable_reasons(reasons: Any) -> list:
