@@ -14,6 +14,7 @@ finished(actions.load_inputs([write_page("001.png", 40), write_page("002.png", 8
 window = session.window
 
 result["languages"] = finished(actions.set_languages("Japanese", "English"))
+result["snapshot_source_lang"] = json.loads((environment.run_dir / "state.json").read_text())["pages"][0]["source_lang"]
 result["page_languages"] = [
     [window.image_states[path]["source_lang"], window.image_states[path]["target_lang"]]
     for path in window.image_files
@@ -49,6 +50,9 @@ class ConfigurationActionTests(unittest.TestCase):
         job = self.result[name]
         self.assertEqual(job["status"], "failed", job)
         self.assertEqual(job["errors"][0]["type"], error_type)
+
+    def test_snapshot_is_updated_after_an_action(self):
+        self.assertEqual(self.result["snapshot_source_lang"], "Japanese")
 
     def test_languages_apply_to_every_page(self):
         self.assertEqual(self.result["languages"]["status"], "succeeded", self.result["languages"])

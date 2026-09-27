@@ -418,13 +418,34 @@ class AppActions:
                 job.fail(*problem)
             return job
         window = self._window
+        progress_handlers = []
+
+        def follow_progress(job: Job) -> None:
+            def on_progress(index: int, total: int, step: int, steps: int, _name_changed: bool) -> None:
+                job.progress.update(page=index, pages=total, step=step, steps=steps)
+
+            progress_handlers.append(on_progress)
+            window.progress_update.connect(on_progress)
+
+        def stop_following() -> None:
+            for handler in progress_handlers:
+                window.progress_update.disconnect(handler)
+            progress_handlers.clear()
 
         def start() -> None:
-            begin()
-            if not window._batch_active:
-                raise RuntimeError("the application did not start the translation run")
+            try:
+                begin()
+                if not window._batch_active:
+                    raise RuntimeError("the application did not start the translation run")
+            except Exception:
+                stop_following()
+                raise
 
-        return self._jobs.start(kind, start, lambda job: self._finish_batch(job, paths))
+        def finish(job: Job) -> None:
+            stop_following()
+            self._finish_batch(job, paths)
+
+        return self._jobs.start(kind, start, finish, prepare=follow_progress)
 
     def _finish_batch(self, job: Job, paths: list[str]) -> None:
         report = self._window.batch_report_ctrl._latest_batch_report or {}

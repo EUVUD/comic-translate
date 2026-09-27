@@ -60,6 +60,7 @@ class JobTrackerTests(unittest.TestCase):
         self.assertEqual(events, ["begin", "finish"])
         self.assertEqual(job.to_dict(), {
             "id": "load-1", "kind": "load", "status": "succeeded", "result": {"pages": 2}, "errors": [],
+            "progress": {},
         })
 
     def test_failure_reported_during_the_job_fails_it(self):
@@ -100,6 +101,30 @@ class JobTrackerTests(unittest.TestCase):
 
         self._finish(job)
         self.assertEqual(job.errors, [{"type": "AssertionError", "message": "no pages were loaded"}])
+
+    def test_prepare_runs_before_the_work_starts(self):
+        events = []
+
+        job = self.tracker.start(
+            "translate",
+            lambda: events.append("begin"),
+            lambda job: events.append("finish"),
+            prepare=lambda job: events.append(f"prepare {job.id}"),
+        )
+        self._finish(job)
+
+        self.assertEqual(events, ["prepare translate-1", "begin", "finish"])
+
+    def test_completion_hook_runs_before_waiters_wake(self):
+        seen = []
+        tracker = JobTracker(self.window, on_complete=lambda job: seen.append((job.kind, job.started, job.future.done())))
+
+        started = tracker.start("load", lambda: None, lambda job: None)
+        self._finish(started)
+        tracker.rejected("export", "ValueError", "bad path")
+        tracker.run_now("set_tools", lambda job: None)
+
+        self.assertEqual(seen, [("load", True, False), ("export", False, False), ("set_tools", True, False)])
 
     def test_jobs_get_unique_ids(self):
         first = self.tracker.start("export", lambda: None, lambda job: None)

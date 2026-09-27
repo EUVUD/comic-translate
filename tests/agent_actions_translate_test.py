@@ -92,6 +92,12 @@ class TranslationActionTests(unittest.TestCase):
         self.assertEqual(job["status"], "succeeded", job)
         self.assertEqual((job["result"]["pages"], job["result"]["skipped"]), (1, []))
         self.assertTrue(job["result"]["complete"])
+        # The one page ran to its last pipeline step.
+        self.assertEqual(job["progress"], {"page": 0, "pages": 1, "step": 10, "steps": 10})
+
+    def test_runs_report_progress(self):
+        self.assertEqual(set(self.result["first_run"]["progress"]), {"page", "pages", "step", "steps"})
+        self.assertEqual(self.result["first_run"]["progress"]["pages"], 2)
 
     def test_every_page_ends_up_translated_rendered_and_cleaned(self):
         pages = [(page["blocks"], page["translated_blocks"], page["text_items"]) for page in self.result["pages"]]

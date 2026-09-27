@@ -34,7 +34,7 @@ class AppSession:
         self.environment = environment
         self.policy = policy
         self.dispatcher = GuiDispatcher(window)
-        self.jobs = JobTracker(window)
+        self.jobs = JobTracker(window, on_complete=self._after_job)
         self.actions = AppActions(self)
         self._owns_window = owns_window
         self._closed = False
@@ -127,6 +127,18 @@ class AppSession:
         from PySide6.QtWidgets import QApplication
 
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, int(seconds * 1000))
+
+    # Jobs that only read the session; any other job may change a snapshot.
+    READ_ONLY_JOBS = frozenset({"render_page_preview"})
+
+    def _after_job(self, job: Any) -> None:
+        """Keep the hermetic run's snapshot current after every change."""
+        if self.environment is None or not job.started or job.kind in self.READ_ONLY_JOBS:
+            return
+        events = self.policy.events if self.policy is not None else ()
+        observations.write_snapshot(
+            observations.snapshot(self.window, events), self.environment.run_dir / "state.json"
+        )
 
     def snapshot(self) -> dict:
         """Observable session state; see ``observations.snapshot``."""

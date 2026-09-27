@@ -19,6 +19,8 @@ class Job:
     status: str = "running"  # running, succeeded or failed
     result: dict = field(default_factory=dict)
     errors: list[dict] = field(default_factory=list)  # {"type": ..., "message": ...}
+    progress: dict = field(default_factory=dict)  # latest progress report, if any
+    started: bool = False  # False for jobs refused before they began
     future: Future = field(default_factory=Future, repr=False, compare=False)
 
     def fail(self, error_type: str, message: str) -> None:
@@ -31,6 +33,7 @@ class Job:
             "status": self.status,
             "result": self.result,
             "errors": list(self.errors),
+            "progress": dict(self.progress),
         }
 
 
@@ -46,18 +49,29 @@ class JobTracker:
     Use it on the GUI thread.
     """
 
-    def __init__(self, window: Any) -> None:
+    def __init__(self, window: Any, on_complete: Callable[[Job], None] | None = None) -> None:
         self._window = window
+        self._on_complete = on_complete
         self._ids = itertools.count(1)
         self.jobs: dict[str, Job] = {}
 
-    def start(self, kind: str, begin: Callable[[], Any], finish: Callable[[Job], None]) -> Job:
+    def start(
+        self,
+        kind: str,
+        begin: Callable[[], Any],
+        finish: Callable[[Job], None],
+        prepare: Callable[[Job], None] | None = None,
+    ) -> Job:
         """Run ``begin``, then call ``finish`` once the work it queued is done.
 
+        ``prepare`` runs first, for example to follow progress signals.
         ``finish`` checks postconditions, fills ``job.result`` and calls
         ``job.fail`` for anything that went wrong.
         """
         job = self._new(kind)
+        job.started = True
+        if prepare is not None:
+            prepare(job)
         self._window.task_failed.connect(job.fail)
 
         def complete() -> None:
@@ -77,6 +91,7 @@ class JobTracker:
     def run_now(self, kind: str, action: Callable[[Job], None]) -> Job:
         """Run a quick action immediately and return its finished job."""
         job = self._new(kind)
+        job.started = True
         self._run(job, action)
         return self._complete(job)
 
@@ -98,8 +113,14 @@ class JobTracker:
         except Exception as exc:  # a failed postcondition check fails the job
             job.fail(type(exc).__name__, str(exc))
 
-    @staticmethod
-    def _complete(job: Job) -> Job:
+    def _complete(self, job: Job) -> Job:
         job.status = "failed" if job.errors else "succeeded"
+        if self._on_complete is not None:
+            # Runs before waiters wake, so they see its effects (a snapshot).
+            try:
+                self._on_complete(job)
+            except Exception as exc:
+                job.fail(type(exc).__name__, f"after the job: {exc}")
+                job.status = "failed"
         job.future.set_result(job)
         return job
