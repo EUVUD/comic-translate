@@ -82,7 +82,8 @@ class SettingsPage(QtWidgets.QWidget):
         """If there’s a network and an existing login, fetch fresh credits."""
         # Avoid blocking the UI thread with network calls and avoid duplicating
         # `check_session_async()` (which already validates + refreshes user info).
-        if self._is_online() and self.auth_client.is_authenticated():
+        # The local token check comes first so signed-out users skip the probe.
+        if self.auth_client.is_authenticated() and self._is_online():
             self.auth_client.check_session_async()
 
     def _setup_connections(self):
@@ -844,6 +845,10 @@ class SettingsPage(QtWidgets.QWidget):
     
     
     def check_for_updates(self, is_background=False):
+        # CT_OFFLINE=1 (set for offline and automated sessions) skips the
+        # automatic check; an explicit user check still runs.
+        if is_background and os.environ.get("CT_OFFLINE") == "1":
+            return
         self._is_background_check = is_background
         if not is_background:
             self.ui.check_update_button.setEnabled(False)
