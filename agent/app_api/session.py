@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from .dispatch import GuiDispatcher
 from .hermetic import HermeticEnvironment
+from .interaction import AgentInteractionPolicy
 
 
 class AppSession:
@@ -22,9 +23,11 @@ class AppSession:
         *,
         owns_window: bool,
         environment: HermeticEnvironment | None = None,
+        policy: AgentInteractionPolicy | None = None,
     ) -> None:
         self.window = window
         self.environment = environment
+        self.policy = policy
         self.dispatcher = GuiDispatcher(window)
         self._owns_window = owns_window
         self._closed = False
@@ -35,25 +38,38 @@ class AppSession:
         return cls(window, owns_window=False)
 
     @classmethod
-    def boot(cls, environment: HermeticEnvironment | None = None, *, show: bool = True) -> AppSession:
+    def boot(
+        cls,
+        environment: HermeticEnvironment | None = None,
+        *,
+        policy: AgentInteractionPolicy | None = None,
+        show: bool = True,
+    ) -> AppSession:
         """Start the application in this process. Call on the main thread.
 
         With an ``environment``, the process is isolated first, so nothing else
         in the process may have used Qt settings or the keyring before this call.
+        Hermetic sessions are unattended: unless ``policy`` is given, prompts are
+        answered by an ``AgentInteractionPolicy`` with no pre-authorized answers.
         """
         if environment is not None:
             environment.apply()
             _pin_hermetic_settings(environment)
+            if policy is None:
+                policy = AgentInteractionPolicy()
 
         from PySide6 import QtWidgets
 
         QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        if policy is not None:
+            # Installed before the window exists so startup prompts are covered.
+            policy.install()
         from controller import ComicTranslate
 
         window = ComicTranslate()
         if show:
             window.show()
-        return cls(window, owns_window=True, environment=environment)
+        return cls(window, owns_window=True, environment=environment, policy=policy)
 
     def submit(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future:
         """Run ``fn`` on the GUI thread; see ``GuiDispatcher.submit``."""
@@ -88,6 +104,8 @@ class AppSession:
         # A booted session's unsaved work is disposable; skip the save prompt.
         self.window._skip_close_prompt = True
         self.window.close()
+        if self.policy is not None:
+            self.policy.uninstall()
 
 
 def _pin_hermetic_settings(environment: HermeticEnvironment) -> None:

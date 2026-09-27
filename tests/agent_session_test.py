@@ -57,8 +57,17 @@ BOOT_PROBE = textwrap.dedent(
     observed["autosave_enabled"] = export["project_autosave_enabled"]
     observed["autosave_in_sandbox"] = environment.contains(export["project_autosave_folder"])
     observed["visible"] = window.isVisible()
+
+    from app.ui import interaction
+    from app.ui.messages import Messages
+    observed["policy"] = type(interaction.get_interaction_policy()).__name__
+    # Would block on a modal dialog without the unattended policy.
+    Messages.show_error_with_copy(window, "Error", "probe failure", "details")
+    observed["prompt"] = session.policy.events[-1].prompt_id
+
     session.close()
     observed["visible_after_close"] = window.isVisible()
+    observed["policy_after_close"] = type(interaction.get_interaction_policy()).__name__
     print(json.dumps(observed))
     """
 )
@@ -114,7 +123,10 @@ class BootedSessionTests(unittest.TestCase):
         self.assertFalse(observed["autosave_enabled"])
         self.assertTrue(observed["autosave_in_sandbox"])
         self.assertTrue(observed["visible"])
+        self.assertEqual(observed["policy"], "AgentInteractionPolicy")
+        self.assertEqual(observed["prompt"], "messages.error_details")
         self.assertFalse(observed["visible_after_close"])
+        self.assertEqual(observed["policy_after_close"], "GuiInteractionPolicy")
 
 
 if __name__ == "__main__":
